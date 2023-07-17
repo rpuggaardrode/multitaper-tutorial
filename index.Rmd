@@ -147,20 +147,20 @@ mts_df <- data.frame(hz = mts$freq,
 
 ## Computing spectral moments
 
-We calculate spectral moments using the function `moments()` from the package `emuR`. It takes the arguments `count` which is our energy dimension (in whatever scale) and `x` which is our frequency dimension (in whatever scale). `moments()` simply returns a vector with four numbers, corresponding to the first four spectral moments, i.e. mean (AKA center of gravity), variance, skew, and kurtosis. Phonetics studies usually report standard deviation rather than variance, because standard deviation is on the easily interpretable Hz scale while variance is on the $Hz^2$ scale. For this reason, we replace the second number of the vector with its square root.
+We calculate spectral moments using the function `moments()` from the package `emuR`. It takes the arguments `count` which is our energy dimension (in whatever scale) and `x` which is our frequency dimension (in whatever scale). `moments()` simply returns a vector with four numbers, corresponding to the first four spectral moments, i.e. mean (AKA center of gravity), variance, skew, and kurtosis. Phonetics studies usually report standard deviation rather than variance, because standard deviation is on the easily interpretable Hz scale while variance is on the $Hz^2$ scale. For this reason, we replace the second number of the vector with its square root. We also have to set `minval=TRUE` because our energy scale contains negative values; if we don't do this, the results would essentially be as if we had flipped the spectrum upside down.
 
 Let's try to do this for our FFT spectrum first.
 
 ```{r, message=FALSE, warning=FALSE}
 library(emuR)
-fft_moments <- moments(fft_df$dB, fft_df$hz)
+fft_moments <- moments(fft_df$dB, fft_df$hz, minval=TRUE)
 fft_moments[2] <- sqrt(fft_moments[2])
 ```
 
 And we'll repeat that for our multitaper spectrum.
 
 ```{r}
-mts_moments <- moments(mts_df$energy, mts_df$hz)
+mts_moments <- moments(mts_df$energy, mts_df$hz, minval=TRUE)
 mts_moments[2] <- sqrt(mts_moments[2])
 ```
 
@@ -228,7 +228,7 @@ for (i in 1:steps) {
   #compute multitaper spectrum without plotting
   tmp_mts <- spec.mtm(tmp, nw=4, k=8, deltat=1/sr, plot=FALSE)
   #compute spectral moments
-  tmp_mom <- moments(count=log(tmp_mts$spec), x=tmp_mts$freq)
+  tmp_mom <- moments(count=log(tmp_mts$spec), x=tmp_mts$freq, minval=TRUE)
   mom$step[i] <- i
   mom$cog[i] <- tmp_mom[1]
   #compute standard deviation from variance
