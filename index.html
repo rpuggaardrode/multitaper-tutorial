@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
 <meta name="author" content="Rasmus Puggaard-Rode">
-<meta name="dcterms.date" content="2023-06-16">
+<meta name="dcterms.date" content="2025-05-08">
 
 <title>Generating and analyzing multitaper spectra in R</title>
 <style>
@@ -111,7 +111,7 @@ div.csl-indent {
   <div class="quarto-title-meta-heading">Affiliation</div>
   
     <div class="quarto-title-meta-contents">
-    <p class="author"><a href="http://rasmuspuggaard.wordpress.com">Rasmus Puggaard-Rode</a> </p>
+    <p class="author"><a href="http://rpuggaardrode.github.io">Rasmus Puggaard-Rode</a> </p>
   </div>
     <div class="quarto-title-meta-contents">
         <p class="affiliation">
@@ -126,7 +126,7 @@ div.csl-indent {
     <div>
     <div class="quarto-title-meta-heading">Published</div>
     <div class="quarto-title-meta-contents">
-      <p class="date">June 16, 2023</p>
+      <p class="date">May 8, 2025</p>
     </div>
   </div>
   
@@ -138,13 +138,14 @@ div.csl-indent {
 
 <section id="brief-introduction" class="level2">
 <h2 class="anchored" data-anchor-id="brief-introduction">Brief introduction</h2>
-<p>This is a tutorial showing how to generate multitaper spectra in R and how to compute their spectral moments and DCT coefficients. I will not go into a lot of technical detail about how they are computed; for more on this, see <span class="citation" data-cites="reidy2013">Reidy (<a href="#ref-reidy2013" role="doc-biblioref">2013</a>)</span> and <span class="citation" data-cites="reidy2015">Reidy (<a href="#ref-reidy2015" role="doc-biblioref">2015</a>)</span>.</p>
-<p>By way of introduction, when linguists analyze speech data, we are very often interested in how much energy is found at different frequencies. This is not easy to spot from the waveform, so the signal is converted into spectrograms or spectral slices, usually generated using the fast Fourier transformation (FFT). As the name suggests, this method is <em>fast</em>.</p>
+<p>This is a tutorial showing how to generate multitaper spectra in R and how to compute spectral moments and DCT coefficients from multitaper spectra. I will not go into a lot of technical detail about how multitaper spectra are generated; for more on this, see <span class="citation" data-cites="reidy2013">Reidy (<a href="#ref-reidy2013" role="doc-biblioref">2013</a>)</span> and <span class="citation" data-cites="reidy2015">Reidy (<a href="#ref-reidy2015" role="doc-biblioref">2015</a>)</span>.</p>
+<p>By way of introduction, when linguists analyze speech data, we are often interested in how much energy is found at different frequencies. This is not easy to spot from the waveform, so the signal is converted into spectrograms or spectral slices, usually generated using the fast Fourier transformation (FFT). As the name suggests, this method is blazing fast.</p>
 <p>FFT spectra are suitable for analyzing voiced portions of speech, but in both theory and practice they can be less suitable for analyzing voiceless portions of speech. This is because the Fourier basis is <em>periodic</em>, making the FFT inherently more suitable for periodic signals, such as voiced portions of speech, and less suitable for aperiodic signals, such as voiceless portions of speech.</p>
 <p>Variance is reduced in multitaper spectral estimation, making multitaper spectra theoretically and practically and more suitable for voiceless portions of speech. <em>Theoretically</em>, because there is no strong assumption of periodicity in the underlying signal, and <em>practically</em>, because FFT spectra of voiceless speech are packed with unwanted noise, which is a major disadvantage if you want to use spectra (or numbers computed from spectra) as dependent variables in a statistical model.</p>
-<p>We’ll be using the packages <code>rPraat</code>, <code>phonTools</code>, <code>seewave</code>, <code>multitaper</code>, and <code>emuR</code>, so make sure those are installed.</p>
+<p>We’ll be using the packages <code>rPraat</code>, <code>phonTools</code>, <code>seewave</code>, <code>multitaper</code>, and <code>emuR</code>, as well as <code>praatpicture</code> for plotting, so make sure those are installed.</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">install.packages</span>(<span class="fu">c</span>(<span class="st">'rPraat'</span>, <span class="st">'phonTools'</span>, <span class="st">'seewave'</span>, <span class="st">'multitaper'</span>, <span class="st">'emuR'</span>))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">install.packages</span>(<span class="fu">c</span>(<span class="st">'rPraat'</span>, <span class="st">'phonTools'</span>, <span class="st">'seewave'</span>, <span class="st">'multitaper'</span>, <span class="st">'emuR'</span>,</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>                   <span class="st">'praatpicture'</span>))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
 </section>
 <section id="loading-and-preprocessing-sound-files" class="level2">
@@ -152,44 +153,49 @@ div.csl-indent {
 <p>There are several functions for loading sound files into R, resulting in objects with different formats. I’ll use <code>snd.read()</code> from the package <code>rPraat</code> here, but you can use whichever method you prefer. The file contains a female Kmhmu’ speaker saying a single syllable [siːm]. It comes from <a href="https://osf.io/wv6qz">this OSF repository</a> (see <span class="citation" data-cites="kirby2022">Kirby, Pittayaporn, and Brunelle (<a href="#ref-kirby2022" role="doc-biblioref">2022</a>)</span>).</p>
 <div class="cell">
 <div class="sourceCode cell-code" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(rPraat)</span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>snd_obj <span class="ot">&lt;-</span> <span class="fu">snd.read</span>(<span class="st">'snd/1.wav'</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>snd_obj <span class="ot">&lt;-</span> <span class="fu">snd.read</span>(<span class="st">'snd/1.wav'</span>)</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="fu">class</span>(snd_obj)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>           type    name 
+ "list" "Sound" "1.wav" </code></pre>
 </div>
-<p><code>snd_obj</code> is an object of the type <code>Sound</code>, which R treats as a list containing a bunch of information about the sound file. The actual sound signal is stored in <code>snd_obj$sig</code>, time (in seconds) of each sample is given in <code>snd_obj$t</code>, and the sample rate of the file is given in <code>snd_obj$fs</code>. If we use the base R plotting function to produce a regular line plot of the signal, we get a waveform. I’ve added red lines indicating the location of the sibilant.</p>
+</div>
+<p><code>snd_obj</code> is an object of the class <code>Sound</code>, which R treats as a list containing a bunch of information about the sound file. The actual sound signal is stored in <code>snd_obj$sig</code>, time (in seconds) of each sample is given in <code>snd_obj$t</code>, and the sample rate of the file is given in <code>snd_obj$fs</code>. If we use the base R plotting function to produce a simple line plot of the signal, we get a waveform. I’ve added red lines indicating the location of the sibilant.</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>sib_loc <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="fl">0.075</span>, <span class="fl">0.21</span>)</span>
-<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(<span class="at">x=</span>snd_obj<span class="sc">$</span>t, <span class="at">y=</span>snd_obj<span class="sc">$</span>sig, <span class="at">type=</span><span class="st">'l'</span>,</span>
-<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>     <span class="at">xlab=</span><span class="st">'Time (s)'</span>,</span>
-<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>     <span class="at">ylab=</span><span class="st">'Amplitude'</span>)</span>
-<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="fu">abline</span>(<span class="at">v=</span>sib_loc, <span class="at">col=</span><span class="st">'red'</span>, <span class="at">lwd=</span><span class="fl">2.5</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>sib_loc <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="fl">0.075</span>, <span class="fl">0.21</span>)</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(<span class="at">x=</span>snd_obj<span class="sc">$</span>t, <span class="at">y=</span>snd_obj<span class="sc">$</span>sig, <span class="at">type=</span><span class="st">'l'</span>,</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>     <span class="at">xlab=</span><span class="st">'Time (s)'</span>,</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>     <span class="at">ylab=</span><span class="st">'Amplitude'</span>)</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a><span class="fu">abline</span>(<span class="at">v=</span>sib_loc, <span class="at">col=</span><span class="st">'red'</span>, <span class="at">lwd=</span><span class="fl">2.5</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output-display">
 <p><img src="index_files/figure-html/unnamed-chunk-3-1.png" class="img-fluid" width="672"></p>
 </div>
 </div>
 <p>Here’s a spectrogram of the sound, generated using the <code>spectrogram()</code> function from the <code>phonTools</code> package:</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(phonTools)</span>
-<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="fu">spectrogram</span>(snd_obj<span class="sc">$</span>sig[,<span class="dv">1</span>], <span class="at">fs=</span>snd_obj<span class="sc">$</span>fs, <span class="at">maxfreq=</span><span class="dv">8000</span>, </span>
-<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>            <span class="at">colors=</span><span class="cn">FALSE</span>, <span class="at">dynamicrange=</span><span class="dv">60</span>)</span>
-<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="fu">abline</span>(<span class="at">v=</span>sib_loc<span class="sc">*</span><span class="dv">1000</span>, <span class="at">col=</span><span class="st">'red'</span>, <span class="at">lwd=</span><span class="fl">2.5</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(phonTools)</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="fu">spectrogram</span>(snd_obj<span class="sc">$</span>sig[,<span class="dv">1</span>], <span class="at">fs=</span>snd_obj<span class="sc">$</span>fs, <span class="at">maxfreq=</span><span class="dv">12000</span>, </span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>            <span class="at">colors=</span><span class="cn">FALSE</span>, <span class="at">dynamicrange=</span><span class="dv">60</span>)</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a><span class="fu">abline</span>(<span class="at">v=</span>sib_loc<span class="sc">*</span><span class="dv">1000</span>, <span class="at">col=</span><span class="st">'red'</span>, <span class="at">lwd=</span><span class="fl">2.5</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output-display">
 <p><img src="index_files/figure-html/unnamed-chunk-4-1.png" class="img-fluid" width="672"></p>
 </div>
 </div>
-<p>This sound file has a sample rate of 44.1 kHz, which is much more than we need for our purposes, so I’ll downsample it to 16 kHz using the <code>resamp()</code> function from the <code>seewave</code> package. This function takes the arguments <code>f</code> (the original sample rate) and <code>g</code> (the desired sample rate).</p>
+<p>This sound file has a sample rate of 44.1 kHz, which is much more than we need for our purposes, so I’ll downsample it to 24 kHz using the <code>resamp()</code> function from the <code>seewave</code> package. This function takes the arguments <code>f</code> (the original sample rate) and <code>g</code> (the desired sample rate). I choose 24 kHz because sibilants do have a tendency to vary in very high frequencies, which probably makes something like 16 kHz problematic as we would then limit ourselves to analyzing frequencies below 8 kHz.</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(seewave)</span>
-<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>sr <span class="ot">&lt;-</span> <span class="dv">16000</span></span>
-<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>snd_16kHz <span class="ot">&lt;-</span> <span class="fu">resamp</span>(snd_obj<span class="sc">$</span>sig, <span class="at">f=</span>snd_obj<span class="sc">$</span>fs, <span class="at">g=</span>sr)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(seewave)</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>sr <span class="ot">&lt;-</span> <span class="dv">24000</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>snd_24kHz <span class="ot">&lt;-</span> <span class="fu">resamp</span>(snd_obj<span class="sc">$</span>sig, <span class="at">f=</span>snd_obj<span class="sc">$</span>fs, <span class="at">g=</span>sr)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
 <p>Next, I’ll extract just those sound samples that belong to the sibilant in the object, and extract a 10 ms snippet from the middle of that.</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>snd_sib <span class="ot">&lt;-</span> snd_16kHz[(sib_loc[<span class="dv">1</span>]<span class="sc">*</span>sr)<span class="sc">:</span>(sib_loc[<span class="dv">2</span>]<span class="sc">*</span>sr)]</span>
-<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>mid <span class="ot">&lt;-</span> <span class="fu">length</span>(snd_sib)<span class="sc">/</span><span class="dv">2</span></span>
-<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>snd <span class="ot">&lt;-</span> snd_sib[(mid<span class="sc">-</span>(<span class="fl">0.005</span><span class="sc">*</span>sr))<span class="sc">:</span>(mid<span class="sc">+</span>(<span class="fl">0.005</span><span class="sc">*</span>sr))]</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>snd_sib <span class="ot">&lt;-</span> snd_24kHz[(sib_loc[<span class="dv">1</span>]<span class="sc">*</span>sr)<span class="sc">:</span>(sib_loc[<span class="dv">2</span>]<span class="sc">*</span>sr)]</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>mid <span class="ot">&lt;-</span> <span class="fu">length</span>(snd_sib)<span class="sc">/</span><span class="dv">2</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>snd <span class="ot">&lt;-</span> snd_sib[(mid<span class="sc">-</span>(<span class="fl">0.005</span><span class="sc">*</span>sr))<span class="sc">:</span>(mid<span class="sc">+</span>(<span class="fl">0.005</span><span class="sc">*</span>sr))]</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
 <p>Our 10 ms snippet <code>snd</code> looks like this:</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(snd, <span class="at">type=</span><span class="st">'l'</span>, <span class="at">xlab=</span><span class="st">'Time (samples)'</span>, <span class="at">ylab=</span><span class="st">'Amplitude'</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(snd, <span class="at">type=</span><span class="st">'l'</span>, <span class="at">xlab=</span><span class="st">'Time (samples)'</span>, <span class="at">ylab=</span><span class="st">'Amplitude'</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output-display">
 <p><img src="index_files/figure-html/unnamed-chunk-7-1.png" class="img-fluid" width="672"></p>
 </div>
@@ -199,33 +205,33 @@ div.csl-indent {
 <h2 class="anchored" data-anchor-id="generating-spectra">Generating spectra</h2>
 <p>First of all, for expository purposes, I’ll generate an FFT spectrum of our sound using the <code>spectralslice()</code> function in <code>phonTools</code>. The <code>fs</code> argument is the signal’s sample rate.</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>fft <span class="ot">&lt;-</span> <span class="fu">spectralslice</span>(snd, <span class="at">fs=</span>sr)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>fft <span class="ot">&lt;-</span> <span class="fu">spectralslice</span>(snd, <span class="at">fs=</span>sr)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output-display">
 <p><img src="index_files/figure-html/unnamed-chunk-8-1.png" class="img-fluid" width="672"></p>
 </div>
 </div>
 <p>As you can see, it’s very noisy and jagged. I saved it in an object <code>fft</code> which is a matrix containing information about the energy distribution in dB by frequency:</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">head</span>(fft)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="fu">head</span>(fft)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
-<pre><code>            hz        dB
-[1,]   0.00000 -13.11734
-[2,]  33.12629 -12.71219
-[3,]  66.25259 -11.82737
-[4,]  99.37888 -11.00038
-[5,] 132.50518 -10.53785
-[6,] 165.63147 -10.54571</code></pre>
+<pre><code>            hz         dB
+[1,]   0.00000 -11.315922
+[2,]  33.19502 -10.944350
+[3,]  66.39004 -10.128381
+[4,]  99.58506  -9.370342
+[5,] 132.78008  -8.981041
+[6,] 165.97510  -9.095506</code></pre>
 </div>
 </div>
 <p>I’ll go ahead and convert that to a data frame, which will make our lives easier down the line.</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>fft_df <span class="ot">&lt;-</span> <span class="fu">as.data.frame</span>(fft)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>fft_df <span class="ot">&lt;-</span> <span class="fu">as.data.frame</span>(fft)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
 <p>Multitaper spectra can be generated using the <code>spec.mtm()</code> function from the <code>multitaper</code> package. I set the arguments <code>nw</code>, a frequency bandwidth parameter, and <code>k</code>, the number of eigenspectra used to compute the final spectrum, following the suggestions by <span class="citation" data-cites="reidy2013">Reidy (<a href="#ref-reidy2013" role="doc-biblioref">2013</a>)</span>. The <code>spec.mtm()</code> defaults are <code>nw=4</code>, which is also what Reidy uses, and <code>k=7</code>, where Reidy uses <span class="math inline">\(K=2nW\)</span>, i.e.&nbsp;<code>k=8</code>. The <code>deltat</code> argument is the duration of each sample in the signal, i.e.&nbsp;1 divided by our sample rate.</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(multitaper)</span>
-<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>mts <span class="ot">&lt;-</span> <span class="fu">spec.mtm</span>(snd, <span class="at">nw=</span><span class="dv">4</span>, <span class="at">k=</span><span class="dv">8</span>, <span class="at">deltat=</span><span class="dv">1</span><span class="sc">/</span>sr, </span>
-<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>                <span class="at">xlab=</span><span class="st">'Frequency (Hz)'</span>, <span class="at">ylab=</span><span class="st">''</span>, <span class="at">main=</span><span class="st">''</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(multitaper)</span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>mts <span class="ot">&lt;-</span> <span class="fu">spec.mtm</span>(snd, <span class="at">nw=</span><span class="dv">4</span>, <span class="at">k=</span><span class="dv">8</span>, <span class="at">deltat=</span><span class="dv">1</span><span class="sc">/</span>sr, </span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>                <span class="at">xlab=</span><span class="st">'Frequency (Hz)'</span>, <span class="at">ylab=</span><span class="st">''</span>, <span class="at">main=</span><span class="st">''</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output-display">
 <p><img src="index_files/figure-html/unnamed-chunk-11-1.png" class="img-fluid" width="672"></p>
 </div>
@@ -233,7 +239,7 @@ div.csl-indent {
 <p>The multitaper spectrum has a much more stable shape than the FFT spectrum.</p>
 <p>Since we already converted the FFT spectrum to a data frame, that already has the format we need for computing things like spectral moments and DCT coefficients. The R object containing the multitaper spectrum is rather more complicated:</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(mts)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(mts)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
 <pre><code>         Length Class  Mode     
 origin.n   1    -none- numeric  
@@ -248,73 +254,105 @@ mtm       14    -none- list     </code></pre>
 </div>
 <p>The information that we have in the corresponding FFT spectrum data frame <code>fft_df</code> is what’s stored in <code>mts$spec</code> and <code>mts$freq</code>. Be aware, however, that we can’t just grab those from the <code>mts</code> object and assume all is well. If we plot them directly, we get this:</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(<span class="at">x=</span>mts<span class="sc">$</span>freq, <span class="at">y=</span>mts<span class="sc">$</span>spec, <span class="at">type=</span><span class="st">'l'</span>,</span>
-<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>     <span class="at">xlab=</span><span class="st">'Frequency (Hz)'</span>, <span class="at">ylab=</span><span class="st">"What's this?"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(<span class="at">x=</span>mts<span class="sc">$</span>freq, <span class="at">y=</span>mts<span class="sc">$</span>spec, <span class="at">type=</span><span class="st">'l'</span>,</span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>     <span class="at">xlab=</span><span class="st">'Frequency (Hz)'</span>, <span class="at">ylab=</span><span class="st">"What's this?"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output-display">
 <p><img src="index_files/figure-html/unnamed-chunk-13-1.png" class="img-fluid" width="672"></p>
 </div>
 </div>
 <p>It doesn’t look at all like what we saw above. This is because energy is in the <span class="math inline">\(W/m^2\)</span> scale and not the decibel scale. Taking the natural log of this number will give us a spectrum that’s visually identical to what the plotting function of <code>multitaper</code> produces.</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(<span class="at">x=</span>mts<span class="sc">$</span>freq, <span class="at">y=</span><span class="fu">log</span>(mts<span class="sc">$</span>spec), <span class="at">type=</span><span class="st">'l'</span>,</span>
-<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>     <span class="at">xlab=</span><span class="st">'Frequency (Hz)'</span>, <span class="at">ylab=</span><span class="st">''</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(<span class="at">x=</span>mts<span class="sc">$</span>freq, <span class="at">y=</span><span class="fu">log</span>(mts<span class="sc">$</span>spec), <span class="at">type=</span><span class="st">'l'</span>,</span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>     <span class="at">xlab=</span><span class="st">'Frequency (Hz)'</span>, <span class="at">ylab=</span><span class="st">''</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output-display">
 <p><img src="index_files/figure-html/unnamed-chunk-14-1.png" class="img-fluid" width="672"></p>
 </div>
 </div>
 <p>I usually standardize spectra before analyzing them statistically, so the exact scale is much less important than the curve shape. For now, let’s save a logged version of the multitaper spectrum in a data frame like we did with the FFT spectrum.</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>mts_df <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">hz =</span> mts<span class="sc">$</span>freq,</span>
-<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>                     <span class="at">energy =</span> <span class="fu">log</span>(mts<span class="sc">$</span>spec))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>mts_df <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">hz =</span> mts<span class="sc">$</span>freq,</span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>                     <span class="at">energy =</span> <span class="fu">log</span>(mts<span class="sc">$</span>spec))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<p>When analyzing the behavior of the high energy range of spectra, it’s customary to filter away lower frequencies to remove any intrusive influence of voicing or other low frequency rumbling, which can have a huge influence on measures that summarize overall shape and energy distribution of the spectrum. This can be done with a bandpass filter before processing the sound, but here we just remove information from frequencies below 500 Hz from the spectrum.</p>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>fft_df <span class="ot">&lt;-</span> fft_df[<span class="fu">which</span>(fft_df<span class="sc">$</span>hz <span class="sc">&gt;</span> <span class="dv">500</span>),]</span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a>mts_df <span class="ot">&lt;-</span> mts_df[<span class="fu">which</span>(mts_df<span class="sc">$</span>hz <span class="sc">&gt;</span> <span class="dv">500</span>),]</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+</section>
+<section id="peak-frequency" class="level2">
+<h2 class="anchored" data-anchor-id="peak-frequency">Peak frequency</h2>
+<p>A straightforward way to summarize a spectrum is to get its peak frequency, i.e.&nbsp;the frequency bin with the highest energy. This can be achieved very simply with the base R function <code>which.max()</code>.</p>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>fft_df<span class="sc">$</span>hz[<span class="fu">which.max</span>(fft_df<span class="sc">$</span>dB)]</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>[1] 5244.813</code></pre>
+</div>
+<div class="sourceCode cell-code" id="cb22"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a>mts_df<span class="sc">$</span>hz[<span class="fu">which.max</span>(mts_df<span class="sc">$</span>energy)]</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>[1] 5671.875</code></pre>
+</div>
+</div>
+<p>There’s a difference of a few hundred Hz between the two spectral estimation methods. It is fairly typical to restrict this measure to the mid-frequency region, i.e.&nbsp;in the region between 3,000–7,000 Hz <span class="citation" data-cites="koenig2013">(see e.g. <a href="#ref-koenig2013" role="doc-biblioref">Koenig et al. 2013</a>)</span>. Since peak finding is very straightforward, we can already clearly see that the results would be identical; these spectra have their peak <em>in</em> the mid-frequency. If that hadn’t been the case though, looking in the mid-frequency could be achieved like this:</p>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb24"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a>fft_midFreq <span class="ot">&lt;-</span> fft_df[<span class="fu">which</span>(fft_df<span class="sc">$</span>hz <span class="sc">&gt;</span> <span class="dv">3000</span> <span class="sc">&amp;</span> fft_df<span class="sc">$</span>hz <span class="sc">&lt;</span> <span class="dv">7000</span>),]</span>
+<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a>mts_midFreq <span class="ot">&lt;-</span> mts_df[<span class="fu">which</span>(mts_df<span class="sc">$</span>hz <span class="sc">&gt;</span> <span class="dv">3000</span> <span class="sc">&amp;</span> mts_df<span class="sc">$</span>hz <span class="sc">&lt;</span> <span class="dv">7000</span>),]</span>
+<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a>fft_midFreq<span class="sc">$</span>hz[<span class="fu">which.max</span>(fft_midFreq<span class="sc">$</span>dB)]</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>[1] 5244.813</code></pre>
+</div>
+<div class="sourceCode cell-code" id="cb26"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a>mts_midFreq<span class="sc">$</span>hz[<span class="fu">which.max</span>(mts_midFreq<span class="sc">$</span>energy)]</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>[1] 5671.875</code></pre>
+</div>
 </div>
 </section>
 <section id="computing-spectral-moments" class="level2">
 <h2 class="anchored" data-anchor-id="computing-spectral-moments">Computing spectral moments</h2>
-<p>We calculate spectral moments using the function <code>moments()</code> from the package <code>emuR</code>. It takes the arguments <code>count</code> which is our energy dimension (in whatever scale) and <code>x</code> which is our frequency dimension (in whatever scale). <code>moments()</code> simply returns a vector with four numbers, corresponding to the first four spectral moments, i.e.&nbsp;mean (AKA center of gravity), variance, skew, and kurtosis. Phonetics studies usually report standard deviation rather than variance, because standard deviation is on the easily interpretable Hz scale while variance is on the <span class="math inline">\(Hz^2\)</span> scale. For this reason, we replace the second number of the vector with its square root. We also have to set <code>minval=TRUE</code> because our energy scale contains negative values; if we don’t do this, the results would essentially be as if we had flipped the spectrum upside down.</p>
+<p>We calculate spectral moments using the function <code>moments()</code> from the package <code>emuR</code>. It takes the arguments <code>count</code> which is our energy dimension (in whatever scale) and <code>x</code> which is our frequency dimension (in whatever scale). <code>moments()</code> simply returns a vector with four numbers, corresponding to the first four spectral moments, i.e.&nbsp;mean (AKA center of gravity), variance, skew, and kurtosis. Phonetics studies usually report standard deviation rather than variance, because standard deviation is on the well-known Hz scale while variance is on the <span class="math inline">\(Hz^2\)</span> scale. For this reason, we replace the second number of the vector with its square root. We also have to set <code>minval=TRUE</code> because our energy scale contains negative values; if we don’t do this, the results would essentially be as if we had flipped the spectrum upside down.</p>
 <p>Let’s try to do this for our FFT spectrum first.</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(emuR)</span>
-<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>fft_moments <span class="ot">&lt;-</span> <span class="fu">moments</span>(fft_df<span class="sc">$</span>dB, fft_df<span class="sc">$</span>hz, <span class="at">minval=</span><span class="cn">TRUE</span>)</span>
-<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a>fft_moments[<span class="dv">2</span>] <span class="ot">&lt;-</span> <span class="fu">sqrt</span>(fft_moments[<span class="dv">2</span>])</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb28"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(emuR)</span>
+<span id="cb28-2"><a href="#cb28-2" aria-hidden="true" tabindex="-1"></a>fft_moments <span class="ot">&lt;-</span> <span class="fu">moments</span>(fft_df<span class="sc">$</span>dB, fft_df<span class="sc">$</span>hz, <span class="at">minval=</span><span class="cn">TRUE</span>)</span>
+<span id="cb28-3"><a href="#cb28-3" aria-hidden="true" tabindex="-1"></a>fft_moments[<span class="dv">2</span>] <span class="ot">&lt;-</span> <span class="fu">sqrt</span>(fft_moments[<span class="dv">2</span>])</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
 <p>And we’ll repeat that for our multitaper spectrum.</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>mts_moments <span class="ot">&lt;-</span> <span class="fu">moments</span>(mts_df<span class="sc">$</span>energy, mts_df<span class="sc">$</span>hz, <span class="at">minval=</span><span class="cn">TRUE</span>)</span>
-<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a>mts_moments[<span class="dv">2</span>] <span class="ot">&lt;-</span> <span class="fu">sqrt</span>(mts_moments[<span class="dv">2</span>])</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb29"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a>mts_moments <span class="ot">&lt;-</span> <span class="fu">moments</span>(mts_df<span class="sc">$</span>energy, mts_df<span class="sc">$</span>hz, <span class="at">minval=</span><span class="cn">TRUE</span>)</span>
+<span id="cb29-2"><a href="#cb29-2" aria-hidden="true" tabindex="-1"></a>mts_moments[<span class="dv">2</span>] <span class="ot">&lt;-</span> <span class="fu">sqrt</span>(mts_moments[<span class="dv">2</span>])</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
 <p>Let’s compare the two results.</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>fft_moments</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb30"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a>fft_moments</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
-<pre><code>[1] 4448.8620672 2263.6365777   -0.3434053   -0.9921930</code></pre>
+<pre><code>[1] 6527.47064546 3029.16900616   -0.03016832   -0.95492682</code></pre>
 </div>
-<div class="sourceCode cell-code" id="cb22"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a>mts_moments</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb32"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb32-1"><a href="#cb32-1" aria-hidden="true" tabindex="-1"></a>mts_moments</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
-<pre><code>[1] 5285.5510979 1923.2638132   -0.9888046    0.4330012</code></pre>
+<pre><code>[1] 6713.23831437 2617.28439091    0.01304411   -0.48917071</code></pre>
 </div>
 </div>
-<p>The standard deviations are not so different, but there’s a very significant 500+ Hz difference in center of gravity, and notable differences in skewness and kurtosis as well. The take home message is that the method of spectral estimation <em>matters</em>.</p>
+<p>There are notable differences in all spectral moments. The take home message is that the method of spectral estimation <em>matters</em>.</p>
 </section>
 <section id="computing-dct-coefficients" class="level2">
 <h2 class="anchored" data-anchor-id="computing-dct-coefficients">Computing DCT coefficients</h2>
 <p>Another way of summarizing spectral shape is using the coefficients of a discrete cosine transformation of the spectrum. Usually the first four coefficients are reported. This is also implemented in the <code>emuR</code> package, in the <code>dct()</code> function. <code>dct()</code> takes the arguments <code>data</code> which is our energy dimension, and <code>m</code> which is the number of coefficients to return. Since DCT coefficients only say something about the shape of a curve, the function doesn’t actually care about the frequency dimension. If we set <code>m=3</code>, the function returns a vector of four numbers, corresponding to k0, k1, k2, and k3, which reflect mean amplitude, linear slope, curvature, and strength at higher frequencies, respectively.</p>
 <p>For our FFT spectrum, it looks like this.</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb24"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a>fft_dct <span class="ot">&lt;-</span> <span class="fu">dct</span>(fft_df<span class="sc">$</span>dB, <span class="at">m=</span><span class="dv">3</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb34"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb34-1"><a href="#cb34-1" aria-hidden="true" tabindex="-1"></a>fft_dct <span class="ot">&lt;-</span> <span class="fu">dct</span>(fft_df<span class="sc">$</span>dB, <span class="at">m=</span><span class="dv">3</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
 <p>And for our multitaper spectrum, it looks like this.</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb25"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a>mts_dct <span class="ot">&lt;-</span> <span class="fu">dct</span>(mts_df<span class="sc">$</span>energy, <span class="at">m=</span><span class="dv">3</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb35"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a>mts_dct <span class="ot">&lt;-</span> <span class="fu">dct</span>(mts_df<span class="sc">$</span>energy, <span class="at">m=</span><span class="dv">3</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
 <p>These are the results.</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb26"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a>fft_dct</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb36"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb36-1"><a href="#cb36-1" aria-hidden="true" tabindex="-1"></a>fft_dct</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
-<pre><code>[1] -17.3128029  -5.1061743  -0.2610576   2.3781157</code></pre>
+<pre><code>[1] -24.575433  -2.643086  -6.839182  -2.032708</code></pre>
 </div>
-<div class="sourceCode cell-code" id="cb28"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a>mts_dct</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb38"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb38-1"><a href="#cb38-1" aria-hidden="true" tabindex="-1"></a>mts_dct</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
-<pre><code>[1] -28.54994097  -1.43138455   0.05025888   0.69589289</code></pre>
+<pre><code>[1] -29.3925342  -0.4104879  -1.4238712  -0.2278941</code></pre>
 </div>
 </div>
 <p>Here, as well, different methods of spectral estimation have serious implications for the results.</p>
@@ -324,134 +362,257 @@ mtm       14    -none- list     </code></pre>
 <p>Usually we won’t want to compute and analyze a single spectrum. If we have a research question, we’ll probably want to do this in bulk by looking at how the spectrum changes over time, or we’ll have multiple tokens of some consonant, multiple sound files, etc. Here I’ll just give two examples of how spectra can be computed and analyzed in bulk. Hopefully these examples can also be helpful for other use cases.</p>
 <p>If we wanted to look at spectral dynamics over time in our fricative <code>snd_sib</code> by computing, say, spectral moments from 10 equidistant multitaper spectra of 10 ms, we could then do the following.</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb30"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a><span class="co">#number of samples in 10 ms</span></span>
-<span id="cb30-2"><a href="#cb30-2" aria-hidden="true" tabindex="-1"></a>cs <span class="ot">&lt;-</span> sr<span class="sc">/</span><span class="dv">100</span></span>
-<span id="cb30-3"><a href="#cb30-3" aria-hidden="true" tabindex="-1"></a><span class="co">#number of samples in the fricative</span></span>
-<span id="cb30-4"><a href="#cb30-4" aria-hidden="true" tabindex="-1"></a>n_samp <span class="ot">&lt;-</span> <span class="fu">length</span>(snd_sib)</span>
-<span id="cb30-5"><a href="#cb30-5" aria-hidden="true" tabindex="-1"></a><span class="co">#our number of equidistant spectra</span></span>
-<span id="cb30-6"><a href="#cb30-6" aria-hidden="true" tabindex="-1"></a>steps <span class="ot">&lt;-</span> <span class="dv">10</span></span>
-<span id="cb30-7"><a href="#cb30-7" aria-hidden="true" tabindex="-1"></a><span class="co">#create vector of start times for the spectra</span></span>
-<span id="cb30-8"><a href="#cb30-8" aria-hidden="true" tabindex="-1"></a>t1 <span class="ot">&lt;-</span> <span class="fu">seq</span>(<span class="dv">1</span>, n_samp<span class="sc">-</span>cs, <span class="at">length.out=</span>steps)</span>
-<span id="cb30-9"><a href="#cb30-9" aria-hidden="true" tabindex="-1"></a><span class="co">#create vector of end times for the spectra</span></span>
-<span id="cb30-10"><a href="#cb30-10" aria-hidden="true" tabindex="-1"></a>t2 <span class="ot">&lt;-</span> <span class="fu">seq</span>(cs, n_samp, <span class="at">length.out=</span>steps)</span>
-<span id="cb30-11"><a href="#cb30-11" aria-hidden="true" tabindex="-1"></a><span class="co">#create empty data frame with nrow=steps</span></span>
-<span id="cb30-12"><a href="#cb30-12" aria-hidden="true" tabindex="-1"></a>mom <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">step =</span> <span class="fu">rep</span>(<span class="cn">NA</span>, steps),</span>
-<span id="cb30-13"><a href="#cb30-13" aria-hidden="true" tabindex="-1"></a>                  <span class="at">cog =</span> <span class="fu">rep</span>(<span class="cn">NA</span>, steps),</span>
-<span id="cb30-14"><a href="#cb30-14" aria-hidden="true" tabindex="-1"></a>                  <span class="at">sd =</span> <span class="fu">rep</span>(<span class="cn">NA</span>, steps),</span>
-<span id="cb30-15"><a href="#cb30-15" aria-hidden="true" tabindex="-1"></a>                  <span class="at">skew =</span> <span class="fu">rep</span>(<span class="cn">NA</span>, steps),</span>
-<span id="cb30-16"><a href="#cb30-16" aria-hidden="true" tabindex="-1"></a>                  <span class="at">kurtosis =</span> <span class="fu">rep</span>(<span class="cn">NA</span>, steps))</span>
-<span id="cb30-17"><a href="#cb30-17" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb30-18"><a href="#cb30-18" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (i <span class="cf">in</span> <span class="dv">1</span><span class="sc">:</span>steps) {</span>
-<span id="cb30-19"><a href="#cb30-19" aria-hidden="true" tabindex="-1"></a>  <span class="co">#create ith 10 ms snippet</span></span>
-<span id="cb30-20"><a href="#cb30-20" aria-hidden="true" tabindex="-1"></a>  tmp <span class="ot">&lt;-</span> snd_sib[t1[i]<span class="sc">:</span>t2[i]]</span>
-<span id="cb30-21"><a href="#cb30-21" aria-hidden="true" tabindex="-1"></a>  <span class="co">#compute multitaper spectrum without plotting</span></span>
-<span id="cb30-22"><a href="#cb30-22" aria-hidden="true" tabindex="-1"></a>  tmp_mts <span class="ot">&lt;-</span> <span class="fu">spec.mtm</span>(tmp, <span class="at">nw=</span><span class="dv">4</span>, <span class="at">k=</span><span class="dv">8</span>, <span class="at">deltat=</span><span class="dv">1</span><span class="sc">/</span>sr, <span class="at">plot=</span><span class="cn">FALSE</span>)</span>
-<span id="cb30-23"><a href="#cb30-23" aria-hidden="true" tabindex="-1"></a>  <span class="co">#compute spectral moments</span></span>
-<span id="cb30-24"><a href="#cb30-24" aria-hidden="true" tabindex="-1"></a>  tmp_mom <span class="ot">&lt;-</span> <span class="fu">moments</span>(<span class="at">count=</span><span class="fu">log</span>(tmp_mts<span class="sc">$</span>spec), <span class="at">x=</span>tmp_mts<span class="sc">$</span>freq, <span class="at">minval=</span><span class="cn">TRUE</span>)</span>
-<span id="cb30-25"><a href="#cb30-25" aria-hidden="true" tabindex="-1"></a>  mom<span class="sc">$</span>step[i] <span class="ot">&lt;-</span> i</span>
-<span id="cb30-26"><a href="#cb30-26" aria-hidden="true" tabindex="-1"></a>  mom<span class="sc">$</span>cog[i] <span class="ot">&lt;-</span> tmp_mom[<span class="dv">1</span>]</span>
-<span id="cb30-27"><a href="#cb30-27" aria-hidden="true" tabindex="-1"></a>  <span class="co">#compute standard deviation from variance</span></span>
-<span id="cb30-28"><a href="#cb30-28" aria-hidden="true" tabindex="-1"></a>  mom<span class="sc">$</span>sd[i] <span class="ot">&lt;-</span> <span class="fu">sqrt</span>(tmp_mom[<span class="dv">2</span>])</span>
-<span id="cb30-29"><a href="#cb30-29" aria-hidden="true" tabindex="-1"></a>  mom<span class="sc">$</span>skew[i] <span class="ot">&lt;-</span> tmp_mom[<span class="dv">3</span>]</span>
-<span id="cb30-30"><a href="#cb30-30" aria-hidden="true" tabindex="-1"></a>  mom<span class="sc">$</span>kurtosis[i] <span class="ot">&lt;-</span> tmp_mom[<span class="dv">4</span>]</span>
-<span id="cb30-31"><a href="#cb30-31" aria-hidden="true" tabindex="-1"></a>}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb40"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb40-1"><a href="#cb40-1" aria-hidden="true" tabindex="-1"></a><span class="co">#number of samples in 10 ms</span></span>
+<span id="cb40-2"><a href="#cb40-2" aria-hidden="true" tabindex="-1"></a>cs <span class="ot">&lt;-</span> sr<span class="sc">/</span><span class="dv">100</span></span>
+<span id="cb40-3"><a href="#cb40-3" aria-hidden="true" tabindex="-1"></a><span class="co">#number of samples in the fricative</span></span>
+<span id="cb40-4"><a href="#cb40-4" aria-hidden="true" tabindex="-1"></a>n_samp <span class="ot">&lt;-</span> <span class="fu">length</span>(snd_sib)</span>
+<span id="cb40-5"><a href="#cb40-5" aria-hidden="true" tabindex="-1"></a><span class="co">#our number of equidistant spectra</span></span>
+<span id="cb40-6"><a href="#cb40-6" aria-hidden="true" tabindex="-1"></a>steps <span class="ot">&lt;-</span> <span class="dv">10</span></span>
+<span id="cb40-7"><a href="#cb40-7" aria-hidden="true" tabindex="-1"></a><span class="co">#create vector of start times for the spectra</span></span>
+<span id="cb40-8"><a href="#cb40-8" aria-hidden="true" tabindex="-1"></a>t1 <span class="ot">&lt;-</span> <span class="fu">seq</span>(<span class="dv">1</span>, n_samp<span class="sc">-</span>cs, <span class="at">length.out=</span>steps)</span>
+<span id="cb40-9"><a href="#cb40-9" aria-hidden="true" tabindex="-1"></a><span class="co">#create vector of end times for the spectra</span></span>
+<span id="cb40-10"><a href="#cb40-10" aria-hidden="true" tabindex="-1"></a>t2 <span class="ot">&lt;-</span> <span class="fu">seq</span>(cs, n_samp, <span class="at">length.out=</span>steps)</span>
+<span id="cb40-11"><a href="#cb40-11" aria-hidden="true" tabindex="-1"></a><span class="co">#create empty data frame with nrow=steps</span></span>
+<span id="cb40-12"><a href="#cb40-12" aria-hidden="true" tabindex="-1"></a>mom <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">step =</span> <span class="fu">rep</span>(<span class="cn">NA</span>, steps),</span>
+<span id="cb40-13"><a href="#cb40-13" aria-hidden="true" tabindex="-1"></a>                  <span class="at">cog =</span> <span class="fu">rep</span>(<span class="cn">NA</span>, steps),</span>
+<span id="cb40-14"><a href="#cb40-14" aria-hidden="true" tabindex="-1"></a>                  <span class="at">sd =</span> <span class="fu">rep</span>(<span class="cn">NA</span>, steps),</span>
+<span id="cb40-15"><a href="#cb40-15" aria-hidden="true" tabindex="-1"></a>                  <span class="at">skew =</span> <span class="fu">rep</span>(<span class="cn">NA</span>, steps),</span>
+<span id="cb40-16"><a href="#cb40-16" aria-hidden="true" tabindex="-1"></a>                  <span class="at">kurtosis =</span> <span class="fu">rep</span>(<span class="cn">NA</span>, steps))</span>
+<span id="cb40-17"><a href="#cb40-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb40-18"><a href="#cb40-18" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (i <span class="cf">in</span> <span class="dv">1</span><span class="sc">:</span>steps) {</span>
+<span id="cb40-19"><a href="#cb40-19" aria-hidden="true" tabindex="-1"></a>  <span class="co">#create ith 10 ms snippet</span></span>
+<span id="cb40-20"><a href="#cb40-20" aria-hidden="true" tabindex="-1"></a>  tmp <span class="ot">&lt;-</span> snd_sib[t1[i]<span class="sc">:</span>t2[i]]</span>
+<span id="cb40-21"><a href="#cb40-21" aria-hidden="true" tabindex="-1"></a>  <span class="co">#compute multitaper spectrum without plotting</span></span>
+<span id="cb40-22"><a href="#cb40-22" aria-hidden="true" tabindex="-1"></a>  tmp_mts <span class="ot">&lt;-</span> <span class="fu">spec.mtm</span>(tmp, <span class="at">nw=</span><span class="dv">4</span>, <span class="at">k=</span><span class="dv">8</span>, <span class="at">deltat=</span><span class="dv">1</span><span class="sc">/</span>sr, <span class="at">plot=</span><span class="cn">FALSE</span>)</span>
+<span id="cb40-23"><a href="#cb40-23" aria-hidden="true" tabindex="-1"></a>  tmp_mts <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">hz =</span> tmp_mts<span class="sc">$</span>freq,</span>
+<span id="cb40-24"><a href="#cb40-24" aria-hidden="true" tabindex="-1"></a>                        <span class="at">energy =</span> <span class="fu">log</span>(tmp_mts<span class="sc">$</span>spec))</span>
+<span id="cb40-25"><a href="#cb40-25" aria-hidden="true" tabindex="-1"></a>  tmp_mts <span class="ot">&lt;-</span> tmp_mts[<span class="fu">which</span>(tmp_mts<span class="sc">$</span>hz <span class="sc">&gt;</span> <span class="dv">500</span>),]</span>
+<span id="cb40-26"><a href="#cb40-26" aria-hidden="true" tabindex="-1"></a>  <span class="co">#compute spectral moments</span></span>
+<span id="cb40-27"><a href="#cb40-27" aria-hidden="true" tabindex="-1"></a>  tmp_mom <span class="ot">&lt;-</span> <span class="fu">moments</span>(<span class="at">count=</span>tmp_mts<span class="sc">$</span>energy, <span class="at">x=</span>tmp_mts<span class="sc">$</span>hz, <span class="at">minval=</span><span class="cn">TRUE</span>)</span>
+<span id="cb40-28"><a href="#cb40-28" aria-hidden="true" tabindex="-1"></a>  mom<span class="sc">$</span>step[i] <span class="ot">&lt;-</span> i</span>
+<span id="cb40-29"><a href="#cb40-29" aria-hidden="true" tabindex="-1"></a>  mom<span class="sc">$</span>cog[i] <span class="ot">&lt;-</span> tmp_mom[<span class="dv">1</span>]</span>
+<span id="cb40-30"><a href="#cb40-30" aria-hidden="true" tabindex="-1"></a>  <span class="co">#compute standard deviation from variance</span></span>
+<span id="cb40-31"><a href="#cb40-31" aria-hidden="true" tabindex="-1"></a>  mom<span class="sc">$</span>sd[i] <span class="ot">&lt;-</span> <span class="fu">sqrt</span>(tmp_mom[<span class="dv">2</span>])</span>
+<span id="cb40-32"><a href="#cb40-32" aria-hidden="true" tabindex="-1"></a>  mom<span class="sc">$</span>skew[i] <span class="ot">&lt;-</span> tmp_mom[<span class="dv">3</span>]</span>
+<span id="cb40-33"><a href="#cb40-33" aria-hidden="true" tabindex="-1"></a>  mom<span class="sc">$</span>kurtosis[i] <span class="ot">&lt;-</span> tmp_mom[<span class="dv">4</span>]</span>
+<span id="cb40-34"><a href="#cb40-34" aria-hidden="true" tabindex="-1"></a>}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
 <p>This results in a data frame with time series for each spectral moments. It looks like this:</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb31"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a>mom</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb41"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb41-1"><a href="#cb41-1" aria-hidden="true" tabindex="-1"></a>mom</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
-<pre><code>   step      cog       sd       skew    kurtosis
-1     1 4571.408 2166.009 -0.6673762 -0.77891571
-2     2 4783.664 1971.263 -0.6685795 -0.21745276
-3     3 5023.175 1944.880 -0.8370027  0.12011007
-4     4 5216.251 1837.283 -0.8268089  0.38115373
-5     5 5164.443 2035.474 -0.8708143 -0.02836778
-6     6 5060.708 2107.689 -0.8178161 -0.23411048
-7     7 5040.835 2154.075 -0.8062055 -0.30271009
-8     8 4844.621 2406.120 -0.8944617 -0.49022781
-9     9 5159.789 2039.067 -0.9876985  0.16785162
-10   10 4396.522 2413.308 -0.5145603 -0.95902483</code></pre>
+<pre><code>   step      cog       sd        skew   kurtosis
+1     1 5988.986 2881.961  0.18437379 -0.6530865
+2     2 6299.798 2915.016  0.01133856 -0.7698554
+3     3 6525.229 2586.294  0.20834472 -0.4085182
+4     4 6822.153 2448.914  0.03136296 -0.3386035
+5     5 6993.307 2568.983 -0.10483378 -0.4386231
+6     6 6727.912 2865.474 -0.11990408 -0.6666871
+7     7 7250.932 2500.938 -0.19279606 -0.2802282
+8     8 6478.217 2872.782 -0.14174052 -0.4770977
+9     9 6620.092 2701.421 -0.19581113 -0.3652390
+10   10 5857.860 2772.067 -0.02317965 -0.5592586</code></pre>
 </div>
 </div>
 <p>(Hint: If you were to repeat this with FFT spectra, you’d see that the variation between adjacent spectra would be much larger).</p>
-<p>Imagine that we had a sound file with a bunch of sibilants and for each of them we want to compute the first four DCT coefficients of multitaper spectra computed around the 10 ms midpoint. Here’s an example of a sound file with 5 [s]es and a TextGrid that marks their locations. (I plot this using a home cooked function <code>plot_tg_tier</code>, which you can find in the source code for this tutorial.)</p>
+<p>Imagine that we had a sound file with a bunch of sibilants and for each of them we want to compute the first four DCT coefficients of multitaper spectra computed around the 10 ms midpoint. Here’s an example of a sound file with 5 [s]es and a TextGrid that marks their locations. (This is plotted using the <code>praatpicture</code> librar – much more information about how this works can be found <a href="https://rpuggaardrode.github.io/praatpicture-manual">here</a>).</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb33"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot_tg_tier</span>(<span class="at">sound=</span><span class="st">'snd/5.wav'</span>, <span class="at">textgrid=</span><span class="st">'snd/5.TextGrid'</span>, <span class="at">tier=</span><span class="st">'sib'</span>,</span>
-<span id="cb33-2"><a href="#cb33-2" aria-hidden="true" tabindex="-1"></a>             <span class="at">max_freq=</span><span class="dv">8000</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb43"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb43-1"><a href="#cb43-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(praatpicture)</span>
+<span id="cb43-2"><a href="#cb43-2" aria-hidden="true" tabindex="-1"></a><span class="fu">praatpicture</span>(<span class="st">'snd/5.wav'</span>, <span class="at">spec_freqRange =</span> <span class="fu">c</span>(<span class="dv">0</span>,<span class="dv">8000</span>),</span>
+<span id="cb43-3"><a href="#cb43-3" aria-hidden="true" tabindex="-1"></a>             <span class="at">tg_focusTierLineType =</span> <span class="st">'solid'</span>, </span>
+<span id="cb43-4"><a href="#cb43-4" aria-hidden="true" tabindex="-1"></a>             <span class="at">tg_focusTierColor =</span> <span class="st">'blue'</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output-display">
-<p><img src="index_files/figure-html/unnamed-chunk-25-1.png" class="img-fluid" width="672"></p>
+<p><img src="index_files/figure-html/unnamed-chunk-27-1.png" class="img-fluid" width="672"></p>
 </div>
 </div>
 <p>In order to do this, we’d first load in the TextGrid using the function <code>tg.read()</code> from the <code>rPraat</code> package.</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb34"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb34-1"><a href="#cb34-1" aria-hidden="true" tabindex="-1"></a>tg <span class="ot">&lt;-</span> <span class="fu">tg.read</span>(<span class="st">'snd/5.TextGrid'</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb44"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb44-1"><a href="#cb44-1" aria-hidden="true" tabindex="-1"></a>tg <span class="ot">&lt;-</span> <span class="fu">tg.read</span>(<span class="st">'snd/5.TextGrid'</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
-<p>This TextGrid has just one tier <code>sib</code>, and the resulting R object contains information about the start and end times of each interval and the labels in them.</p>
+<p>This TextGrid has just one tier <code>sib</code>, and the resulting R object is a list containing information about the start and end times of each interval and the labels in them.</p>
 <p>The rest of the operation could look like this:</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb35"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a><span class="co">#find the intervals with label 's'</span></span>
-<span id="cb35-2"><a href="#cb35-2" aria-hidden="true" tabindex="-1"></a>s_int <span class="ot">&lt;-</span> <span class="fu">which</span>(tg<span class="sc">$</span>sib<span class="sc">$</span>label <span class="sc">==</span> <span class="st">'s'</span>)</span>
-<span id="cb35-3"><a href="#cb35-3" aria-hidden="true" tabindex="-1"></a><span class="co">#how many intervals?</span></span>
-<span id="cb35-4"><a href="#cb35-4" aria-hidden="true" tabindex="-1"></a>ns <span class="ot">&lt;-</span> <span class="fu">length</span>(s_int)</span>
-<span id="cb35-5"><a href="#cb35-5" aria-hidden="true" tabindex="-1"></a><span class="co">#create empty data frame with nrow=ns</span></span>
-<span id="cb35-6"><a href="#cb35-6" aria-hidden="true" tabindex="-1"></a>dct_coef <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">id =</span> <span class="fu">rep</span>(<span class="cn">NA</span>, ns),</span>
-<span id="cb35-7"><a href="#cb35-7" aria-hidden="true" tabindex="-1"></a>                       <span class="at">t1 =</span> <span class="fu">rep</span>(<span class="cn">NA</span>, ns),</span>
-<span id="cb35-8"><a href="#cb35-8" aria-hidden="true" tabindex="-1"></a>                       <span class="at">t2 =</span> <span class="fu">rep</span>(<span class="cn">NA</span>, ns),</span>
-<span id="cb35-9"><a href="#cb35-9" aria-hidden="true" tabindex="-1"></a>                       <span class="at">k0 =</span> <span class="fu">rep</span>(<span class="cn">NA</span>, ns),</span>
-<span id="cb35-10"><a href="#cb35-10" aria-hidden="true" tabindex="-1"></a>                       <span class="at">k1 =</span> <span class="fu">rep</span>(<span class="cn">NA</span>, ns),</span>
-<span id="cb35-11"><a href="#cb35-11" aria-hidden="true" tabindex="-1"></a>                       <span class="at">k2 =</span> <span class="fu">rep</span>(<span class="cn">NA</span>, ns),</span>
-<span id="cb35-12"><a href="#cb35-12" aria-hidden="true" tabindex="-1"></a>                       <span class="at">k3 =</span> <span class="fu">rep</span>(<span class="cn">NA</span>, ns))</span>
-<span id="cb35-13"><a href="#cb35-13" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb35-14"><a href="#cb35-14" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (i <span class="cf">in</span> <span class="dv">1</span><span class="sc">:</span>ns) {</span>
-<span id="cb35-15"><a href="#cb35-15" aria-hidden="true" tabindex="-1"></a>  <span class="co">#number of the ith interval with label 's'</span></span>
-<span id="cb35-16"><a href="#cb35-16" aria-hidden="true" tabindex="-1"></a>  int <span class="ot">&lt;-</span> s_int[i]</span>
-<span id="cb35-17"><a href="#cb35-17" aria-hidden="true" tabindex="-1"></a>  <span class="co">#start time of the ith interval with label 's'</span></span>
-<span id="cb35-18"><a href="#cb35-18" aria-hidden="true" tabindex="-1"></a>  t1 <span class="ot">&lt;-</span> tg<span class="sc">$</span>sib<span class="sc">$</span>t1[int]</span>
-<span id="cb35-19"><a href="#cb35-19" aria-hidden="true" tabindex="-1"></a>  <span class="co">#end time of the ith interval with label 's'</span></span>
-<span id="cb35-20"><a href="#cb35-20" aria-hidden="true" tabindex="-1"></a>  t2 <span class="ot">&lt;-</span> tg<span class="sc">$</span>sib<span class="sc">$</span>t2[int]</span>
-<span id="cb35-21"><a href="#cb35-21" aria-hidden="true" tabindex="-1"></a>  <span class="co">#mid point of the interval</span></span>
-<span id="cb35-22"><a href="#cb35-22" aria-hidden="true" tabindex="-1"></a>  midpoint <span class="ot">&lt;-</span> t1 <span class="sc">+</span> (t2<span class="sc">-</span>t1) <span class="sc">/</span> <span class="dv">2</span></span>
-<span id="cb35-23"><a href="#cb35-23" aria-hidden="true" tabindex="-1"></a>  </span>
-<span id="cb35-24"><a href="#cb35-24" aria-hidden="true" tabindex="-1"></a>  <span class="co">#read in 10 ms snippet from sound file around the midpoint</span></span>
-<span id="cb35-25"><a href="#cb35-25" aria-hidden="true" tabindex="-1"></a>  <span class="co">#of the ith interval with label 's'</span></span>
-<span id="cb35-26"><a href="#cb35-26" aria-hidden="true" tabindex="-1"></a>  tmp <span class="ot">&lt;-</span> <span class="fu">snd.read</span>(<span class="st">'snd/5.wav'</span>, </span>
-<span id="cb35-27"><a href="#cb35-27" aria-hidden="true" tabindex="-1"></a>                  <span class="at">from=</span>midpoint<span class="fl">-0.005</span>, <span class="at">to=</span>midpoint<span class="fl">+0.005</span>, </span>
-<span id="cb35-28"><a href="#cb35-28" aria-hidden="true" tabindex="-1"></a>                  <span class="at">units=</span><span class="st">'seconds'</span>)</span>
-<span id="cb35-29"><a href="#cb35-29" aria-hidden="true" tabindex="-1"></a>  <span class="co">#downsample to 16 kHz as shown above</span></span>
-<span id="cb35-30"><a href="#cb35-30" aria-hidden="true" tabindex="-1"></a>  tmp_16kHz <span class="ot">&lt;-</span> <span class="fu">as.vector</span>(<span class="fu">resamp</span>(tmp<span class="sc">$</span>sig, <span class="at">f=</span>tmp<span class="sc">$</span>fs, <span class="at">g=</span>sr))</span>
-<span id="cb35-31"><a href="#cb35-31" aria-hidden="true" tabindex="-1"></a>  </span>
-<span id="cb35-32"><a href="#cb35-32" aria-hidden="true" tabindex="-1"></a>  <span class="co">#compute multitaper spectrum without plotting</span></span>
-<span id="cb35-33"><a href="#cb35-33" aria-hidden="true" tabindex="-1"></a>  tmp_mts <span class="ot">&lt;-</span> <span class="fu">spec.mtm</span>(tmp_16kHz, <span class="at">nw=</span><span class="dv">4</span>, <span class="at">k=</span><span class="dv">8</span>, <span class="at">deltat=</span><span class="dv">1</span><span class="sc">/</span>sr, <span class="at">plot=</span><span class="cn">FALSE</span>)</span>
-<span id="cb35-34"><a href="#cb35-34" aria-hidden="true" tabindex="-1"></a>  <span class="co">#get 4 DCT coefficients as shown above</span></span>
-<span id="cb35-35"><a href="#cb35-35" aria-hidden="true" tabindex="-1"></a>  tmp_dct <span class="ot">&lt;-</span> <span class="fu">dct</span>(<span class="fu">log</span>(tmp_mts<span class="sc">$</span>spec), <span class="at">m=</span><span class="dv">3</span>)</span>
-<span id="cb35-36"><a href="#cb35-36" aria-hidden="true" tabindex="-1"></a>  <span class="co">#fill in data frame</span></span>
-<span id="cb35-37"><a href="#cb35-37" aria-hidden="true" tabindex="-1"></a>  dct_coef<span class="sc">$</span>id[i] <span class="ot">&lt;-</span> i</span>
-<span id="cb35-38"><a href="#cb35-38" aria-hidden="true" tabindex="-1"></a>  dct_coef<span class="sc">$</span>t1[i] <span class="ot">&lt;-</span> t1</span>
-<span id="cb35-39"><a href="#cb35-39" aria-hidden="true" tabindex="-1"></a>  dct_coef<span class="sc">$</span>t2[i] <span class="ot">&lt;-</span> t2</span>
-<span id="cb35-40"><a href="#cb35-40" aria-hidden="true" tabindex="-1"></a>  dct_coef<span class="sc">$</span>k0[i] <span class="ot">&lt;-</span> tmp_dct[<span class="dv">1</span>]</span>
-<span id="cb35-41"><a href="#cb35-41" aria-hidden="true" tabindex="-1"></a>  dct_coef<span class="sc">$</span>k1[i] <span class="ot">&lt;-</span> tmp_dct[<span class="dv">2</span>]</span>
-<span id="cb35-42"><a href="#cb35-42" aria-hidden="true" tabindex="-1"></a>  dct_coef<span class="sc">$</span>k2[i] <span class="ot">&lt;-</span> tmp_dct[<span class="dv">3</span>]</span>
-<span id="cb35-43"><a href="#cb35-43" aria-hidden="true" tabindex="-1"></a>  dct_coef<span class="sc">$</span>k3[i] <span class="ot">&lt;-</span> tmp_dct[<span class="dv">4</span>]</span>
-<span id="cb35-44"><a href="#cb35-44" aria-hidden="true" tabindex="-1"></a>}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb45"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb45-1"><a href="#cb45-1" aria-hidden="true" tabindex="-1"></a><span class="co">#find the intervals with label 's'</span></span>
+<span id="cb45-2"><a href="#cb45-2" aria-hidden="true" tabindex="-1"></a>s_int <span class="ot">&lt;-</span> <span class="fu">which</span>(tg<span class="sc">$</span>sib<span class="sc">$</span>label <span class="sc">==</span> <span class="st">'s'</span>)</span>
+<span id="cb45-3"><a href="#cb45-3" aria-hidden="true" tabindex="-1"></a><span class="co">#how many intervals?</span></span>
+<span id="cb45-4"><a href="#cb45-4" aria-hidden="true" tabindex="-1"></a>ns <span class="ot">&lt;-</span> <span class="fu">length</span>(s_int)</span>
+<span id="cb45-5"><a href="#cb45-5" aria-hidden="true" tabindex="-1"></a><span class="co">#create empty data frame with nrow=ns</span></span>
+<span id="cb45-6"><a href="#cb45-6" aria-hidden="true" tabindex="-1"></a>dct_coef <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">id =</span> <span class="fu">rep</span>(<span class="cn">NA</span>, ns),</span>
+<span id="cb45-7"><a href="#cb45-7" aria-hidden="true" tabindex="-1"></a>                       <span class="at">t1 =</span> <span class="fu">rep</span>(<span class="cn">NA</span>, ns),</span>
+<span id="cb45-8"><a href="#cb45-8" aria-hidden="true" tabindex="-1"></a>                       <span class="at">t2 =</span> <span class="fu">rep</span>(<span class="cn">NA</span>, ns),</span>
+<span id="cb45-9"><a href="#cb45-9" aria-hidden="true" tabindex="-1"></a>                       <span class="at">k0 =</span> <span class="fu">rep</span>(<span class="cn">NA</span>, ns),</span>
+<span id="cb45-10"><a href="#cb45-10" aria-hidden="true" tabindex="-1"></a>                       <span class="at">k1 =</span> <span class="fu">rep</span>(<span class="cn">NA</span>, ns),</span>
+<span id="cb45-11"><a href="#cb45-11" aria-hidden="true" tabindex="-1"></a>                       <span class="at">k2 =</span> <span class="fu">rep</span>(<span class="cn">NA</span>, ns),</span>
+<span id="cb45-12"><a href="#cb45-12" aria-hidden="true" tabindex="-1"></a>                       <span class="at">k3 =</span> <span class="fu">rep</span>(<span class="cn">NA</span>, ns))</span>
+<span id="cb45-13"><a href="#cb45-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb45-14"><a href="#cb45-14" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (i <span class="cf">in</span> <span class="dv">1</span><span class="sc">:</span>ns) {</span>
+<span id="cb45-15"><a href="#cb45-15" aria-hidden="true" tabindex="-1"></a>  <span class="co">#number of the ith interval with label 's'</span></span>
+<span id="cb45-16"><a href="#cb45-16" aria-hidden="true" tabindex="-1"></a>  int <span class="ot">&lt;-</span> s_int[i]</span>
+<span id="cb45-17"><a href="#cb45-17" aria-hidden="true" tabindex="-1"></a>  <span class="co">#start time of the ith interval with label 's'</span></span>
+<span id="cb45-18"><a href="#cb45-18" aria-hidden="true" tabindex="-1"></a>  t1 <span class="ot">&lt;-</span> tg<span class="sc">$</span>sib<span class="sc">$</span>t1[int]</span>
+<span id="cb45-19"><a href="#cb45-19" aria-hidden="true" tabindex="-1"></a>  <span class="co">#end time of the ith interval with label 's'</span></span>
+<span id="cb45-20"><a href="#cb45-20" aria-hidden="true" tabindex="-1"></a>  t2 <span class="ot">&lt;-</span> tg<span class="sc">$</span>sib<span class="sc">$</span>t2[int]</span>
+<span id="cb45-21"><a href="#cb45-21" aria-hidden="true" tabindex="-1"></a>  <span class="co">#mid point of the interval</span></span>
+<span id="cb45-22"><a href="#cb45-22" aria-hidden="true" tabindex="-1"></a>  midpoint <span class="ot">&lt;-</span> t1 <span class="sc">+</span> (t2<span class="sc">-</span>t1) <span class="sc">/</span> <span class="dv">2</span></span>
+<span id="cb45-23"><a href="#cb45-23" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb45-24"><a href="#cb45-24" aria-hidden="true" tabindex="-1"></a>  <span class="co">#read in 10 ms snippet from sound file around the midpoint</span></span>
+<span id="cb45-25"><a href="#cb45-25" aria-hidden="true" tabindex="-1"></a>  <span class="co">#of the ith interval with label 's'</span></span>
+<span id="cb45-26"><a href="#cb45-26" aria-hidden="true" tabindex="-1"></a>  tmp <span class="ot">&lt;-</span> <span class="fu">snd.read</span>(<span class="st">'snd/5.wav'</span>, </span>
+<span id="cb45-27"><a href="#cb45-27" aria-hidden="true" tabindex="-1"></a>                  <span class="at">from=</span>midpoint<span class="fl">-0.005</span>, <span class="at">to=</span>midpoint<span class="fl">+0.005</span>, </span>
+<span id="cb45-28"><a href="#cb45-28" aria-hidden="true" tabindex="-1"></a>                  <span class="at">units=</span><span class="st">'seconds'</span>)</span>
+<span id="cb45-29"><a href="#cb45-29" aria-hidden="true" tabindex="-1"></a>  <span class="co">#downsample to 24 kHz as shown above</span></span>
+<span id="cb45-30"><a href="#cb45-30" aria-hidden="true" tabindex="-1"></a>  tmp_24kHz <span class="ot">&lt;-</span> <span class="fu">as.vector</span>(<span class="fu">resamp</span>(tmp<span class="sc">$</span>sig, <span class="at">f=</span>tmp<span class="sc">$</span>fs, <span class="at">g=</span>sr))</span>
+<span id="cb45-31"><a href="#cb45-31" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb45-32"><a href="#cb45-32" aria-hidden="true" tabindex="-1"></a>  <span class="co">#compute multitaper spectrum without plotting</span></span>
+<span id="cb45-33"><a href="#cb45-33" aria-hidden="true" tabindex="-1"></a>  tmp_mts <span class="ot">&lt;-</span> <span class="fu">spec.mtm</span>(tmp_24kHz, <span class="at">nw=</span><span class="dv">4</span>, <span class="at">k=</span><span class="dv">8</span>, <span class="at">deltat=</span><span class="dv">1</span><span class="sc">/</span>sr, <span class="at">plot=</span><span class="cn">FALSE</span>)</span>
+<span id="cb45-34"><a href="#cb45-34" aria-hidden="true" tabindex="-1"></a>  tmp_mts <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">hz =</span> tmp_mts<span class="sc">$</span>freq,</span>
+<span id="cb45-35"><a href="#cb45-35" aria-hidden="true" tabindex="-1"></a>                        <span class="at">energy =</span> <span class="fu">log</span>(tmp_mts<span class="sc">$</span>spec))</span>
+<span id="cb45-36"><a href="#cb45-36" aria-hidden="true" tabindex="-1"></a>  tmp_mts <span class="ot">&lt;-</span> tmp_mts[<span class="fu">which</span>(tmp_mts<span class="sc">$</span>hz <span class="sc">&gt;</span> <span class="dv">500</span>),]</span>
+<span id="cb45-37"><a href="#cb45-37" aria-hidden="true" tabindex="-1"></a>  <span class="co">#get 4 DCT coefficients as shown above</span></span>
+<span id="cb45-38"><a href="#cb45-38" aria-hidden="true" tabindex="-1"></a>  tmp_dct <span class="ot">&lt;-</span> <span class="fu">dct</span>(tmp_mts<span class="sc">$</span>energy, <span class="at">m=</span><span class="dv">3</span>)</span>
+<span id="cb45-39"><a href="#cb45-39" aria-hidden="true" tabindex="-1"></a>  <span class="co">#fill in data frame</span></span>
+<span id="cb45-40"><a href="#cb45-40" aria-hidden="true" tabindex="-1"></a>  dct_coef<span class="sc">$</span>id[i] <span class="ot">&lt;-</span> i</span>
+<span id="cb45-41"><a href="#cb45-41" aria-hidden="true" tabindex="-1"></a>  dct_coef<span class="sc">$</span>t1[i] <span class="ot">&lt;-</span> t1</span>
+<span id="cb45-42"><a href="#cb45-42" aria-hidden="true" tabindex="-1"></a>  dct_coef<span class="sc">$</span>t2[i] <span class="ot">&lt;-</span> t2</span>
+<span id="cb45-43"><a href="#cb45-43" aria-hidden="true" tabindex="-1"></a>  dct_coef<span class="sc">$</span>k0[i] <span class="ot">&lt;-</span> tmp_dct[<span class="dv">1</span>]</span>
+<span id="cb45-44"><a href="#cb45-44" aria-hidden="true" tabindex="-1"></a>  dct_coef<span class="sc">$</span>k1[i] <span class="ot">&lt;-</span> tmp_dct[<span class="dv">2</span>]</span>
+<span id="cb45-45"><a href="#cb45-45" aria-hidden="true" tabindex="-1"></a>  dct_coef<span class="sc">$</span>k2[i] <span class="ot">&lt;-</span> tmp_dct[<span class="dv">3</span>]</span>
+<span id="cb45-46"><a href="#cb45-46" aria-hidden="true" tabindex="-1"></a>  dct_coef<span class="sc">$</span>k3[i] <span class="ot">&lt;-</span> tmp_dct[<span class="dv">4</span>]</span>
+<span id="cb45-47"><a href="#cb45-47" aria-hidden="true" tabindex="-1"></a>}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
 <p>We now have a data frame <code>dct_coef</code> with spectral DCT coefficients computed from the midpoint of each sibilant:</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb36"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb36-1"><a href="#cb36-1" aria-hidden="true" tabindex="-1"></a>dct_coef</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb46"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb46-1"><a href="#cb46-1" aria-hidden="true" tabindex="-1"></a>dct_coef</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
-<pre><code>  id        t1        t2        k0        k1        k2          k3
-1  1 0.1142821 0.2950639 -26.54519 -1.529873 0.4460807  0.30874918
-2  2 0.8182295 0.9670684 -26.01753 -1.501038 0.3764371 -0.03228430
-3  3 1.7678831 1.8943365 -26.36810 -1.606486 0.3366901 -0.07079519
-4  4 2.5671831 2.7023670 -26.28169 -1.633347 0.5080955 -0.37781924
-5  5 3.2914200 3.4253128 -27.27152 -1.289093 0.3231615 -0.10775605</code></pre>
+<pre><code>  id        t1        t2        k0        k1          k2        k3
+1  1 0.1142821 0.2950639 -27.22306 -1.674568 -0.44917079 0.6753327
+2  2 0.8182295 0.9670684 -26.86305 -1.926533 -0.10199791 0.5209929
+3  3 1.7678831 1.8943365 -27.11824 -1.864177 -0.60113986 0.8022334
+4  4 2.5671831 2.7023670 -26.85385 -1.826578 -0.39936280 0.8335437
+5  5 3.2914200 3.4253128 -28.32103 -1.821612 -0.03566683 0.5755081</code></pre>
 </div>
 </div>
+<p>These are both relatively simple cases, involving multiple tokens of multiple ‘snippets’ from a single sound file. Often, we’ll be interested in analyzing potentially multiple tokens from multiple sound files. To enable such a workflow, we’re probably better off turning parts of the analysis into a <em>function</em>. Here I define a function <code>getSpecPeak</code> for grabbing the mid-frequency peak from the mid-point of each token with a certain TextGrid label, allowing users to define the analysis window around the midpoint, how to resample, and how to define mid-frequency regions.</p>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb48"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb48-1"><a href="#cb48-1" aria-hidden="true" tabindex="-1"></a>getSpecPeak <span class="ot">&lt;-</span> <span class="cf">function</span>(filename, tierName, tgMatch, <span class="at">resamp =</span> <span class="dv">24000</span>,</span>
+<span id="cb48-2"><a href="#cb48-2" aria-hidden="true" tabindex="-1"></a>                        <span class="at">analysisWindow =</span> <span class="fl">0.01</span>, <span class="at">midFreqRegion =</span> <span class="fu">c</span>(<span class="dv">3000</span>, <span class="dv">7000</span>)) {</span>
+<span id="cb48-3"><a href="#cb48-3" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb48-4"><a href="#cb48-4" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Read in TextGrid with flexible filename</span></span>
+<span id="cb48-5"><a href="#cb48-5" aria-hidden="true" tabindex="-1"></a>  tg <span class="ot">&lt;-</span> <span class="fu">tg.read</span>(<span class="fu">paste0</span>(filename, <span class="st">'.TextGrid'</span>), <span class="at">encoding =</span> <span class="st">'auto'</span>)</span>
+<span id="cb48-6"><a href="#cb48-6" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Find matches in TextGrid</span></span>
+<span id="cb48-7"><a href="#cb48-7" aria-hidden="true" tabindex="-1"></a>  match_int <span class="ot">&lt;-</span> <span class="fu">which</span>(tg[[tierName]]<span class="sc">$</span>label <span class="sc">==</span> tgMatch)</span>
+<span id="cb48-8"><a href="#cb48-8" aria-hidden="true" tabindex="-1"></a>  <span class="co"># How many matches in TextGrid?</span></span>
+<span id="cb48-9"><a href="#cb48-9" aria-hidden="true" tabindex="-1"></a>  n_match <span class="ot">&lt;-</span> <span class="fu">length</span>(match_int)</span>
+<span id="cb48-10"><a href="#cb48-10" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Create empty data frame</span></span>
+<span id="cb48-11"><a href="#cb48-11" aria-hidden="true" tabindex="-1"></a>  spec_peak <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">id =</span> <span class="fu">rep</span>(<span class="cn">NA</span>, n_match),</span>
+<span id="cb48-12"><a href="#cb48-12" aria-hidden="true" tabindex="-1"></a>                          <span class="at">t1 =</span> <span class="fu">rep</span>(<span class="cn">NA</span>, n_match),</span>
+<span id="cb48-13"><a href="#cb48-13" aria-hidden="true" tabindex="-1"></a>                          <span class="at">t2 =</span> <span class="fu">rep</span>(<span class="cn">NA</span>, n_match),</span>
+<span id="cb48-14"><a href="#cb48-14" aria-hidden="true" tabindex="-1"></a>                          <span class="at">following =</span> <span class="fu">rep</span>(<span class="cn">NA</span>, n_match),</span>
+<span id="cb48-15"><a href="#cb48-15" aria-hidden="true" tabindex="-1"></a>                          <span class="at">peak =</span> <span class="fu">rep</span>(<span class="cn">NA</span>, n_match))</span>
+<span id="cb48-16"><a href="#cb48-16" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Loop through TextGrid matches</span></span>
+<span id="cb48-17"><a href="#cb48-17" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (i <span class="cf">in</span> <span class="dv">1</span><span class="sc">:</span>n_match) {</span>
+<span id="cb48-18"><a href="#cb48-18" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Keep identifier</span></span>
+<span id="cb48-19"><a href="#cb48-19" aria-hidden="true" tabindex="-1"></a>    int <span class="ot">&lt;-</span> match_int[i]</span>
+<span id="cb48-20"><a href="#cb48-20" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Keep start and end times</span></span>
+<span id="cb48-21"><a href="#cb48-21" aria-hidden="true" tabindex="-1"></a>    t1 <span class="ot">&lt;-</span> tg[[tierName]]<span class="sc">$</span>t1[int]</span>
+<span id="cb48-22"><a href="#cb48-22" aria-hidden="true" tabindex="-1"></a>    t2 <span class="ot">&lt;-</span> tg[[tierName]]<span class="sc">$</span>t2[int]</span>
+<span id="cb48-23"><a href="#cb48-23" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Get the following TextGrid label (probably of interest)</span></span>
+<span id="cb48-24"><a href="#cb48-24" aria-hidden="true" tabindex="-1"></a>    following <span class="ot">&lt;-</span> tg[[tierName]]<span class="sc">$</span>label[int <span class="sc">+</span> <span class="dv">1</span>]</span>
+<span id="cb48-25"><a href="#cb48-25" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Get midpoint timestamp</span></span>
+<span id="cb48-26"><a href="#cb48-26" aria-hidden="true" tabindex="-1"></a>    midpoint <span class="ot">&lt;-</span> t1 <span class="sc">+</span> (t2<span class="sc">-</span>t1) <span class="sc">/</span> <span class="dv">2</span></span>
+<span id="cb48-27"><a href="#cb48-27" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb48-28"><a href="#cb48-28" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Read in sound analysis window of sound file</span></span>
+<span id="cb48-29"><a href="#cb48-29" aria-hidden="true" tabindex="-1"></a>    tmp <span class="ot">&lt;-</span> <span class="fu">snd.read</span>(<span class="fu">paste0</span>(filename, <span class="st">'.wav'</span>), </span>
+<span id="cb48-30"><a href="#cb48-30" aria-hidden="true" tabindex="-1"></a>                    <span class="at">from=</span>midpoint<span class="sc">-</span>(analysisWindow<span class="sc">/</span><span class="dv">2</span>), </span>
+<span id="cb48-31"><a href="#cb48-31" aria-hidden="true" tabindex="-1"></a>                    <span class="at">to=</span>midpoint<span class="sc">+</span>(analysisWindow<span class="sc">/</span><span class="dv">2</span>), </span>
+<span id="cb48-32"><a href="#cb48-32" aria-hidden="true" tabindex="-1"></a>                    <span class="at">units=</span><span class="st">'seconds'</span>)</span>
+<span id="cb48-33"><a href="#cb48-33" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Resample using user input</span></span>
+<span id="cb48-34"><a href="#cb48-34" aria-hidden="true" tabindex="-1"></a>    sr <span class="ot">&lt;-</span> tmp<span class="sc">$</span>fs</span>
+<span id="cb48-35"><a href="#cb48-35" aria-hidden="true" tabindex="-1"></a>    tmp <span class="ot">&lt;-</span> <span class="fu">as.vector</span>(<span class="fu">resamp</span>(tmp<span class="sc">$</span>sig, <span class="at">f=</span>tmp<span class="sc">$</span>fs, <span class="at">g=</span>resamp))</span>
+<span id="cb48-36"><a href="#cb48-36" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb48-37"><a href="#cb48-37" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Generate multitaper spectrum and convert to data frame</span></span>
+<span id="cb48-38"><a href="#cb48-38" aria-hidden="true" tabindex="-1"></a>    tmp_mts <span class="ot">&lt;-</span> <span class="fu">spec.mtm</span>(tmp, <span class="at">nw=</span><span class="dv">4</span>, <span class="at">k=</span><span class="dv">8</span>, <span class="at">deltat=</span><span class="dv">1</span><span class="sc">/</span>resamp, <span class="at">plot=</span><span class="cn">FALSE</span>)</span>
+<span id="cb48-39"><a href="#cb48-39" aria-hidden="true" tabindex="-1"></a>    tmp_mts <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">hz =</span> tmp_mts<span class="sc">$</span>freq,</span>
+<span id="cb48-40"><a href="#cb48-40" aria-hidden="true" tabindex="-1"></a>                          <span class="at">energy =</span> <span class="fu">log</span>(tmp_mts<span class="sc">$</span>spec))</span>
+<span id="cb48-41"><a href="#cb48-41" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Filter spectrum to mid frequency region</span></span>
+<span id="cb48-42"><a href="#cb48-42" aria-hidden="true" tabindex="-1"></a>    tmp_mts <span class="ot">&lt;-</span> tmp_mts[<span class="fu">which</span>(tmp_mts<span class="sc">$</span>hz <span class="sc">&gt;</span> midFreqRegion[<span class="dv">1</span>] <span class="sc">&amp;</span></span>
+<span id="cb48-43"><a href="#cb48-43" aria-hidden="true" tabindex="-1"></a>                               tmp_mts<span class="sc">$</span>hz <span class="sc">&lt;</span> midFreqRegion[<span class="dv">2</span>]),]</span>
+<span id="cb48-44"><a href="#cb48-44" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Find peak</span></span>
+<span id="cb48-45"><a href="#cb48-45" aria-hidden="true" tabindex="-1"></a>    tmp_peak <span class="ot">&lt;-</span> tmp_mts[<span class="fu">which.max</span>(tmp_mts<span class="sc">$</span>energy),<span class="st">'hz'</span>]</span>
+<span id="cb48-46"><a href="#cb48-46" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Populate dummy data frame</span></span>
+<span id="cb48-47"><a href="#cb48-47" aria-hidden="true" tabindex="-1"></a>    spec_peak<span class="sc">$</span>id[i] <span class="ot">&lt;-</span> i</span>
+<span id="cb48-48"><a href="#cb48-48" aria-hidden="true" tabindex="-1"></a>    spec_peak<span class="sc">$</span>t1[i] <span class="ot">&lt;-</span> t1</span>
+<span id="cb48-49"><a href="#cb48-49" aria-hidden="true" tabindex="-1"></a>    spec_peak<span class="sc">$</span>t2[i] <span class="ot">&lt;-</span> t2</span>
+<span id="cb48-50"><a href="#cb48-50" aria-hidden="true" tabindex="-1"></a>    spec_peak<span class="sc">$</span>following[i] <span class="ot">&lt;-</span> following</span>
+<span id="cb48-51"><a href="#cb48-51" aria-hidden="true" tabindex="-1"></a>    spec_peak<span class="sc">$</span>peak[i] <span class="ot">&lt;-</span> tmp_peak</span>
+<span id="cb48-52"><a href="#cb48-52" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb48-53"><a href="#cb48-53" aria-hidden="true" tabindex="-1"></a>  <span class="fu">return</span>(spec_peak)</span>
+<span id="cb48-54"><a href="#cb48-54" aria-hidden="true" tabindex="-1"></a>}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<p>This function can now be used on a single file:</p>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb49"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb49-1"><a href="#cb49-1" aria-hidden="true" tabindex="-1"></a><span class="fu">getSpecPeak</span>(<span class="at">filename =</span> <span class="st">'snd/1'</span>, <span class="at">tierName =</span> <span class="st">'sib'</span>, <span class="at">tgMatch =</span> <span class="st">'s'</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>  id         t1        t2 following     peak
+1  1 0.07544516 0.2164158           5109.375</code></pre>
+</div>
+</div>
+<p>Very simple output as there’s only one /s/ in this sound file! But having a function also makes it easier to batch process multiple sound files. We just need a list of files that we want to process, and then we can loop over them, like so:</p>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb51"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb51-1"><a href="#cb51-1" aria-hidden="true" tabindex="-1"></a><span class="co"># list all files with .wav extension in the snd folder</span></span>
+<span id="cb51-2"><a href="#cb51-2" aria-hidden="true" tabindex="-1"></a>wavFiles <span class="ot">&lt;-</span> <span class="fu">list.files</span>(<span class="at">path =</span> <span class="st">'snd'</span>, <span class="at">pattern =</span> <span class="st">'.wav'</span>, <span class="at">full.names =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb51-3"><a href="#cb51-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb51-4"><a href="#cb51-4" aria-hidden="true" tabindex="-1"></a><span class="co"># loop over them</span></span>
+<span id="cb51-5"><a href="#cb51-5" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (i <span class="cf">in</span> <span class="dv">1</span><span class="sc">:</span><span class="fu">length</span>(wavFiles)) {</span>
+<span id="cb51-6"><a href="#cb51-6" aria-hidden="true" tabindex="-1"></a>  <span class="co"># get versions of file names without .wav extension</span></span>
+<span id="cb51-7"><a href="#cb51-7" aria-hidden="true" tabindex="-1"></a>  bare_filename <span class="ot">&lt;-</span> <span class="fu">gsub</span>(<span class="st">'.wav'</span>, <span class="st">''</span>, wavFiles[i])</span>
+<span id="cb51-8"><a href="#cb51-8" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb51-9"><a href="#cb51-9" aria-hidden="true" tabindex="-1"></a>  <span class="co"># if this is the first run through the loop, initiate data frame</span></span>
+<span id="cb51-10"><a href="#cb51-10" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (i <span class="sc">==</span> <span class="dv">1</span>) {</span>
+<span id="cb51-11"><a href="#cb51-11" aria-hidden="true" tabindex="-1"></a>    specPeakBulk <span class="ot">&lt;-</span> <span class="fu">getSpecPeak</span>(bare_filename, <span class="at">tierName =</span> <span class="st">'sib'</span>, <span class="at">tgMatch =</span> <span class="st">'s'</span>)</span>
+<span id="cb51-12"><a href="#cb51-12" aria-hidden="true" tabindex="-1"></a>    specPeakBulk<span class="sc">$</span>file <span class="ot">&lt;-</span> bare_filename</span>
+<span id="cb51-13"><a href="#cb51-13" aria-hidden="true" tabindex="-1"></a>  <span class="co"># if this is not the first run through the loop, create new temporary </span></span>
+<span id="cb51-14"><a href="#cb51-14" aria-hidden="true" tabindex="-1"></a>  <span class="co"># data frame and combine at the end</span></span>
+<span id="cb51-15"><a href="#cb51-15" aria-hidden="true" tabindex="-1"></a>  } <span class="cf">else</span> {</span>
+<span id="cb51-16"><a href="#cb51-16" aria-hidden="true" tabindex="-1"></a>    tmp <span class="ot">&lt;-</span> <span class="fu">getSpecPeak</span>(bare_filename, <span class="at">tierName =</span> <span class="st">'sib'</span>, <span class="at">tgMatch =</span> <span class="st">'s'</span>)</span>
+<span id="cb51-17"><a href="#cb51-17" aria-hidden="true" tabindex="-1"></a>    tmp<span class="sc">$</span>file <span class="ot">&lt;-</span> bare_filename</span>
+<span id="cb51-18"><a href="#cb51-18" aria-hidden="true" tabindex="-1"></a>    specPeakBulk <span class="ot">&lt;-</span> <span class="fu">rbind</span>(specPeakBulk, tmp)</span>
+<span id="cb51-19"><a href="#cb51-19" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb51-20"><a href="#cb51-20" aria-hidden="true" tabindex="-1"></a>}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<p>These are the results:</p>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb52"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb52-1"><a href="#cb52-1" aria-hidden="true" tabindex="-1"></a>specPeakBulk</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>  id         t1        t2 following     peak  file
+1  1 0.07544516 0.2164158           5109.375 snd/1
+2  1 0.11428206 0.2950639           6890.625 snd/5
+3  2 0.81822953 0.9670684           6890.625 snd/5
+4  3 1.76788311 1.8943365           6656.250 snd/5
+5  4 2.56718306 2.7023670           6984.375 snd/5
+6  5 3.29142004 3.4253128           6750.000 snd/5</code></pre>
+</div>
+</div>
+</section>
+<section id="more-complex-methods-and-workflows" class="level2">
+<h2 class="anchored" data-anchor-id="more-complex-methods-and-workflows">More complex methods and workflows</h2>
+<p>When we generate spectra in R and store them in R objects, it means we also have access to all the complex statistical methods that are available in R. In addition to parameterizing the spectra with one or a few numbers as we’ve done here, we can use them as inputs or dependent variables in advanced statistical methods. I’ll briefly mention a few here, but won’t demonstrate the methods here. One such approach is functional principal component analysis (FPCA), a dimensionality reduction method that takes as input a potentially large number of <em>functions</em> or curves, and can be used to summarize their principal modes of variation. The output would then be 1) the average spectrum, 2) a small number of shapes (<em>principal components</em>) that summarize ways in which the input spectra differ from the average, and 3) for each input spectrum, <em>scores</em> indicating how much it matches each of the principal components. <span class="citation" data-cites="puggaardrode2023">Puggaard-Rode (<a href="#ref-puggaardrode2023" role="doc-biblioref">2023</a>)</span> uses this approach to analyze regional variation in /t/ midpoint spectra in Danish (the code is laid out <a href="https://rpuggaardrode.github.io/icphs2023">here</a>).</p>
+<p>An approach for integrating both the frequency and time domains using function-on-scalar regression is demonstrated by <span class="citation" data-cites="puggaardrode2022">Puggaard-Rode (<a href="#ref-puggaardrode2022" role="doc-biblioref">2022</a>)</span>. This involves smoothing over both the time and frequency domain to estimate differences in time-varying spectral shape in different conditions.</p>
 
 </section>
 
 <div id="quarto-appendix" class="default"><section class="quarto-appendix-contents" role="doc-bibliography"><h2 class="anchored quarto-appendix-heading">References</h2><div id="refs" class="references csl-bib-body hanging-indent" role="list">
 <div id="ref-kirby2022" class="csl-entry" role="listitem">
 Kirby, James, Pittayawat Pittayaporn, and Marc Brunelle. 2022. <span>“Transphonologization of Onset Voicing: Revisiting Northern and Eastern Kmhmu<span>’</span>.”</span> <em>Phonetica</em> 79 (6): 591–629. <a href="https://doi.org/10.1515/phon-2022-0029">https://doi.org/10.1515/phon-2022-0029</a>.
+</div>
+<div id="ref-koenig2013" class="csl-entry" role="listitem">
+Koenig, Laura L., Christine H. Shadle, Jonathan L. Preston, and Christine R. Mooshammer. 2013. <span>“Toward Improved Spectral Measures of /s/. <span>Results</span> from Adolescents.”</span> <em>Journal of Speech, Language, and Hearing Research</em> 56 (4): 1175–89. <a href="https://doi.org/10.1044/1092-4388(2012/12-0038)">https://doi.org/10.1044/1092-4388(2012/12-0038)</a>.
+</div>
+<div id="ref-puggaardrode2022" class="csl-entry" role="listitem">
+Puggaard-Rode, Rasmus. 2022. <span>“Analyzing Time-Varying Spectral Characteristics of Speech with Function-on-Scalar Regression.”</span> <em>Journal of Phonetics</em> 95. <a href="https://doi.org/10.1016/j.wocn.2022.101191">https://doi.org/10.1016/j.wocn.2022.101191</a>.
+</div>
+<div id="ref-puggaardrode2023" class="csl-entry" role="listitem">
+———. 2023. <span>“The /t/ Release in <span>Jutland</span> <span>Danish</span>. <span>Decomposing</span> the Spectrum with Functional <span>PCA</span>.”</span> In <em>Proceedings of the 20th <span>International</span> <span>Congress</span> of <span>Phonetic</span> <span>Sciences</span></em>, edited by Radek Skarnitzl and Jan Volín, 3262–66. Prague: Guarant.
 </div>
 <div id="ref-reidy2013" class="csl-entry" role="listitem">
 Reidy, Patrick. 2013. <span>“An Introduction to Random Processes for the Spectral Analysis of Speech Data.”</span> <em>Ohio State University Working Papers in Linguistics</em> 60: 67–116.

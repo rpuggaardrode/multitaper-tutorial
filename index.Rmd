@@ -2,10 +2,10 @@
 title: "Generating and analyzing multitaper spectra in R"
 author:
   - name: "Rasmus Puggaard-Rode"
-    url: "http://rasmuspuggaard.wordpress.com"
+    url: "http://rpuggaardrode.github.io"
     affiliations:
       - "Institute for Phonetics and Speech Processing, Ludwig Maximilian University of Munich"
-date: 2023-06-16
+date: 2025-05-08
 license: "CC-BY-SA 4.0"
 format: 
   html: default
@@ -22,31 +22,32 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Brief introduction
 
-This is a tutorial showing how to generate multitaper spectra in R and how to compute their spectral moments and DCT coefficients. I will not go into a lot of technical detail about how they are computed; for more on this, see @reidy2013 and @reidy2015.
+This is a tutorial showing how to generate multitaper spectra in R and how to compute spectral moments and DCT coefficients from multitaper spectra. I will not go into a lot of technical detail about how multitaper spectra are generated; for more on this, see @reidy2013 and @reidy2015.
 
-By way of introduction, when linguists analyze speech data, we are very often interested in how much energy is found at different frequencies. This is not easy to spot from the waveform, so the signal is converted into spectrograms or spectral slices, usually generated using the fast Fourier transformation (FFT). As the name suggests, this method is *fast*. 
+By way of introduction, when linguists analyze speech data, we are often interested in how much energy is found at different frequencies. This is not easy to spot from the waveform, so the signal is converted into spectrograms or spectral slices, usually generated using the fast Fourier transformation (FFT). As the name suggests, this method is blazing fast.
 
-FFT spectra are suitable for analyzing voiced portions of speech, but in both theory and practice they can be less suitable for analyzing voiceless portions of speech. This is because the Fourier basis is *periodic*, making the FFT inherently more suitable for periodic signals, such as voiced portions of speech, and less suitable for aperiodic signals, such as voiceless portions of speech. 
+FFT spectra are suitable for analyzing voiced portions of speech, but in both theory and practice they can be less suitable for analyzing voiceless portions of speech. This is because the Fourier basis is *periodic*, making the FFT inherently more suitable for periodic signals, such as voiced portions of speech, and less suitable for aperiodic signals, such as voiceless portions of speech.
 
 Variance is reduced in multitaper spectral estimation, making multitaper spectra theoretically and practically and more suitable for voiceless portions of speech. *Theoretically*, because there is no strong assumption of periodicity in the underlying signal, and *practically*, because FFT spectra of voiceless speech are packed with unwanted noise, which is a major disadvantage if you want to use spectra (or numbers computed from spectra) as dependent variables in a statistical model.
 
-We'll be using the packages `rPraat`, `phonTools`, `seewave`, `multitaper`, and `emuR`, so make sure those are installed.
+We'll be using the packages `rPraat`, `phonTools`, `seewave`, `multitaper`, and `emuR`, as well as `praatpicture` for plotting, so make sure those are installed.
 
 ```{r, eval=FALSE}
-install.packages(c('rPraat', 'phonTools', 'seewave', 'multitaper', 'emuR'))
+install.packages(c('rPraat', 'phonTools', 'seewave', 'multitaper', 'emuR',
+                   'praatpicture'))
 ```
-
 
 ## Loading and preprocessing sound files
 
-There are several functions for loading sound files into R, resulting in objects with different formats. I'll use `snd.read()` from the package `rPraat` here, but you can use whichever method you prefer. The file contains a female Kmhmu' speaker saying a single syllable [siːm]. It comes from [this OSF repository](https://osf.io/wv6qz) (see @kirby2022).
+There are several functions for loading sound files into R, resulting in objects with different formats. I'll use `snd.read()` from the package `rPraat` here, but you can use whichever method you prefer. The file contains a female Kmhmu' speaker saying a single syllable \[siːm\]. It comes from [this OSF repository](https://osf.io/wv6qz) (see @kirby2022).
 
 ```{r, message=FALSE, warning=FALSE}
 library(rPraat)
 snd_obj <- snd.read('snd/1.wav')
+class(snd_obj)
 ```
 
-`snd_obj` is an object of the type `Sound`, which R treats as a list containing a bunch of information about the sound file. The actual sound signal is stored in `snd_obj$sig`, time (in seconds) of each sample is given in `snd_obj$t`, and the sample rate of the file is given in `snd_obj$fs`. If we use the base R plotting function to produce a regular line plot of the signal, we get a waveform. I've added red lines indicating the location of the sibilant.
+`snd_obj` is an object of the class `Sound`, which R treats as a list containing a bunch of information about the sound file. The actual sound signal is stored in `snd_obj$sig`, time (in seconds) of each sample is given in `snd_obj$t`, and the sample rate of the file is given in `snd_obj$fs`. If we use the base R plotting function to produce a simple line plot of the signal, we get a waveform. I've added red lines indicating the location of the sibilant.
 
 ```{r}
 sib_loc <- c(0.075, 0.21)
@@ -60,23 +61,23 @@ Here's a spectrogram of the sound, generated using the `spectrogram()` function 
 
 ```{r, message=FALSE, warning=FALSE}
 library(phonTools)
-spectrogram(snd_obj$sig[,1], fs=snd_obj$fs, maxfreq=8000, 
+spectrogram(snd_obj$sig[,1], fs=snd_obj$fs, maxfreq=12000, 
             colors=FALSE, dynamicrange=60)
 abline(v=sib_loc*1000, col='red', lwd=2.5)
 ```
 
-This sound file has a sample rate of 44.1 kHz, which is much more than we need for our purposes, so I'll downsample it to 16 kHz using the `resamp()` function from the `seewave` package. This function takes the arguments `f` (the original sample rate) and `g` (the desired sample rate).
+This sound file has a sample rate of 44.1 kHz, which is much more than we need for our purposes, so I'll downsample it to 24 kHz using the `resamp()` function from the `seewave` package. This function takes the arguments `f` (the original sample rate) and `g` (the desired sample rate). I choose 24 kHz because sibilants do have a tendency to vary in very high frequencies, which probably makes something like 16 kHz problematic as we would then limit ourselves to analyzing frequencies below 8 kHz.
 
 ```{r, message=FALSE, warning=FALSE}
 library(seewave)
-sr <- 16000
-snd_16kHz <- resamp(snd_obj$sig, f=snd_obj$fs, g=sr)
+sr <- 24000
+snd_24kHz <- resamp(snd_obj$sig, f=snd_obj$fs, g=sr)
 ```
 
 Next, I'll extract just those sound samples that belong to the sibilant in the object, and extract a 10 ms snippet from the middle of that.
 
 ```{r}
-snd_sib <- snd_16kHz[(sib_loc[1]*sr):(sib_loc[2]*sr)]
+snd_sib <- snd_24kHz[(sib_loc[1]*sr):(sib_loc[2]*sr)]
 mid <- length(snd_sib)/2
 snd <- snd_sib[(mid-(0.005*sr)):(mid+(0.005*sr))]
 ```
@@ -144,9 +145,34 @@ mts_df <- data.frame(hz = mts$freq,
                      energy = log(mts$spec))
 ```
 
+When analyzing the behavior of the high energy range of spectra, it's customary to filter away lower frequencies to remove any intrusive influence of voicing or other low frequency rumbling, which can have a huge influence on measures that summarize overall shape and energy distribution of the spectrum. This can be done with a bandpass filter before processing the sound, but here we just remove information from frequencies below 500 Hz from the spectrum.
+
+```{r, message=FALSE, warning=FALSE}
+fft_df <- fft_df[which(fft_df$hz > 500),]
+mts_df <- mts_df[which(mts_df$hz > 500),]
+```
+
+## Peak frequency
+
+A straightforward way to summarize a spectrum is to get its peak frequency, i.e. the frequency bin with the highest energy. This can be achieved very simply with the base R function `which.max()`.
+
+```{r}
+fft_df$hz[which.max(fft_df$dB)]
+mts_df$hz[which.max(mts_df$energy)]
+```
+
+There's a difference of a few hundred Hz between the two spectral estimation methods. It is fairly typical to restrict this measure to the mid-frequency region, i.e. in the region between 3,000--7,000 Hz [see e.g. @koenig2013]. Since peak finding is very straightforward, we can already clearly see that the results would be identical; these spectra have their peak *in* the mid-frequency. If that hadn't been the case though, looking in the mid-frequency could be achieved like this:
+
+```{r, message=FALSE, warning=FALSE}
+fft_midFreq <- fft_df[which(fft_df$hz > 3000 & fft_df$hz < 7000),]
+mts_midFreq <- mts_df[which(mts_df$hz > 3000 & mts_df$hz < 7000),]
+fft_midFreq$hz[which.max(fft_midFreq$dB)]
+mts_midFreq$hz[which.max(mts_midFreq$energy)]
+```
+
 ## Computing spectral moments
 
-We calculate spectral moments using the function `moments()` from the package `emuR`. It takes the arguments `count` which is our energy dimension (in whatever scale) and `x` which is our frequency dimension (in whatever scale). `moments()` simply returns a vector with four numbers, corresponding to the first four spectral moments, i.e. mean (AKA center of gravity), variance, skew, and kurtosis. Phonetics studies usually report standard deviation rather than variance, because standard deviation is on the easily interpretable Hz scale while variance is on the $Hz^2$ scale. For this reason, we replace the second number of the vector with its square root. We also have to set `minval=TRUE` because our energy scale contains negative values; if we don't do this, the results would essentially be as if we had flipped the spectrum upside down.
+We calculate spectral moments using the function `moments()` from the package `emuR`. It takes the arguments `count` which is our energy dimension (in whatever scale) and `x` which is our frequency dimension (in whatever scale). `moments()` simply returns a vector with four numbers, corresponding to the first four spectral moments, i.e. mean (AKA center of gravity), variance, skew, and kurtosis. Phonetics studies usually report standard deviation rather than variance, because standard deviation is on the well-known Hz scale while variance is on the $Hz^2$ scale. For this reason, we replace the second number of the vector with its square root. We also have to set `minval=TRUE` because our energy scale contains negative values; if we don't do this, the results would essentially be as if we had flipped the spectrum upside down.
 
 Let's try to do this for our FFT spectrum first.
 
@@ -170,7 +196,7 @@ fft_moments
 mts_moments
 ```
 
-The standard deviations are not so different, but there's a very significant 500+ Hz difference in center of gravity, and notable differences in skewness and kurtosis as well. The take home message is that the method of spectral estimation *matters*.
+There are notable differences in all spectral moments. The take home message is that the method of spectral estimation *matters*.
 
 ## Computing DCT coefficients
 
@@ -199,7 +225,7 @@ Here, as well, different methods of spectral estimation have serious implication
 
 ## Bulk processing
 
-Usually we won't want to compute and analyze a single spectrum. If we have a research question, we'll probably want to do this in bulk by looking at how the spectrum changes over time, or we'll have multiple tokens of some consonant, multiple sound files, etc. Here I'll just give two examples of how spectra can be computed and analyzed in bulk. Hopefully these examples can also be helpful for other use cases. 
+Usually we won't want to compute and analyze a single spectrum. If we have a research question, we'll probably want to do this in bulk by looking at how the spectrum changes over time, or we'll have multiple tokens of some consonant, multiple sound files, etc. Here I'll just give two examples of how spectra can be computed and analyzed in bulk. Hopefully these examples can also be helpful for other use cases.
 
 If we wanted to look at spectral dynamics over time in our fricative `snd_sib` by computing, say, spectral moments from 10 equidistant multitaper spectra of 10 ms, we could then do the following.
 
@@ -226,8 +252,11 @@ for (i in 1:steps) {
   tmp <- snd_sib[t1[i]:t2[i]]
   #compute multitaper spectrum without plotting
   tmp_mts <- spec.mtm(tmp, nw=4, k=8, deltat=1/sr, plot=FALSE)
+  tmp_mts <- data.frame(hz = tmp_mts$freq,
+                        energy = log(tmp_mts$spec))
+  tmp_mts <- tmp_mts[which(tmp_mts$hz > 500),]
   #compute spectral moments
-  tmp_mom <- moments(count=log(tmp_mts$spec), x=tmp_mts$freq, minval=TRUE)
+  tmp_mom <- moments(count=tmp_mts$energy, x=tmp_mts$hz, minval=TRUE)
   mom$step[i] <- i
   mom$cog[i] <- tmp_mom[1]
   #compute standard deviation from variance
@@ -245,53 +274,22 @@ mom
 
 (Hint: If you were to repeat this with FFT spectra, you'd see that the variation between adjacent spectra would be much larger).
 
-Imagine that we had a sound file with a bunch of sibilants and for each of them we want to compute the first four DCT coefficients  of multitaper spectra computed around the 10 ms midpoint. Here's an example of a sound file with 5 [s]es and a TextGrid that marks their locations. (I plot this using a home cooked function `plot_tg_tier`, which you can find in the source code for this tutorial.)
-
-```{r, include=F}
-plot_tg_tier <- function(sound, textgrid, tier,
-                         max_freq=5000,
-                         start=0, end=Inf, fontsize=2) {
-  
-  tg <- rPraat::tg.read(textgrid)
-  snd <- rPraat::snd.read(sound, from=start, to=end, units='seconds')
-  
-  sig <- snd$sig
-  fs <- snd$fs
-  t <- snd$t - start
-  
-  t1 <- tg[[tier]]$t1 - start
-  t2 <- tg[[tier]]$t2 - start
-  line_vec <- t1[-1]
-  
-  par(mai=c(0,0,0,0), oma=c(4,4,4,4))
-  layout(matrix(c(1,1,1,2,2,2,2,2,3,3), nrow=10, ncol=1))
-  plot(sig, type='l', ylab='', xlab='', xaxt='n', yaxt='n')
-  abline(v=line_vec*fs, col='blue')
-  spec <- phonTools::spectrogram(sig[,1], fs, colors=F, show=F)
-  plot(NULL, xlim=c(0, (length(t)/fs)*1000), xaxt='n',
-       ylim=c(0,max_freq))
-  plot(spec, add=T)
-  abline(v=(line_vec*1000), col='blue')
-  plot(1, type='n', xlab='Time (s)', ylab='',
-       xlim=c(0, length(t)/fs),
-       ylim=c(0,10), yaxt='n')
-  abline(v=line_vec, col='blue')
-  text(t1+(t2-t1)/2, 5, tg[[tier]]$label, cex=fontsize)
-}
-```
+Imagine that we had a sound file with a bunch of sibilants and for each of them we want to compute the first four DCT coefficients of multitaper spectra computed around the 10 ms midpoint. Here's an example of a sound file with 5 \[s\]es and a TextGrid that marks their locations. (This is plotted using the `praatpicture` librar -- much more information about how this works can be found [here](https://rpuggaardrode.github.io/praatpicture-manual)).
 
 ```{r}
-plot_tg_tier(sound='snd/5.wav', textgrid='snd/5.TextGrid', tier='sib',
-             max_freq=8000)
+library(praatpicture)
+praatpicture('snd/5.wav', spec_freqRange = c(0,8000),
+             tg_focusTierLineType = 'solid', 
+             tg_focusTierColor = 'blue')
 ```
 
-In order to do this, we'd first load in the TextGrid using the function `tg.read()` from the `rPraat` package. 
+In order to do this, we'd first load in the TextGrid using the function `tg.read()` from the `rPraat` package.
 
 ```{r}
 tg <- tg.read('snd/5.TextGrid')
 ```
 
-This TextGrid has just one tier `sib`, and the resulting R object contains information about the start and end times of each interval and the labels in them.
+This TextGrid has just one tier `sib`, and the resulting R object is a list containing information about the start and end times of each interval and the labels in them.
 
 The rest of the operation could look like this:
 
@@ -324,13 +322,16 @@ for (i in 1:ns) {
   tmp <- snd.read('snd/5.wav', 
                   from=midpoint-0.005, to=midpoint+0.005, 
                   units='seconds')
-  #downsample to 16 kHz as shown above
-  tmp_16kHz <- as.vector(resamp(tmp$sig, f=tmp$fs, g=sr))
+  #downsample to 24 kHz as shown above
+  tmp_24kHz <- as.vector(resamp(tmp$sig, f=tmp$fs, g=sr))
   
   #compute multitaper spectrum without plotting
-  tmp_mts <- spec.mtm(tmp_16kHz, nw=4, k=8, deltat=1/sr, plot=FALSE)
+  tmp_mts <- spec.mtm(tmp_24kHz, nw=4, k=8, deltat=1/sr, plot=FALSE)
+  tmp_mts <- data.frame(hz = tmp_mts$freq,
+                        energy = log(tmp_mts$spec))
+  tmp_mts <- tmp_mts[which(tmp_mts$hz > 500),]
   #get 4 DCT coefficients as shown above
-  tmp_dct <- dct(log(tmp_mts$spec), m=3)
+  tmp_dct <- dct(tmp_mts$energy, m=3)
   #fill in data frame
   dct_coef$id[i] <- i
   dct_coef$t1[i] <- t1
@@ -347,3 +348,105 @@ We now have a data frame `dct_coef` with spectral DCT coefficients computed from
 ```{r}
 dct_coef
 ```
+
+These are both relatively simple cases, involving multiple tokens of multiple 'snippets' from a single sound file. Often, we'll be interested in analyzing potentially multiple tokens from multiple sound files. To enable such a workflow, we're probably better off turning parts of the analysis into a *function*. Here I define a function `getSpecPeak` for grabbing the mid-frequency peak from the mid-point of each token with a certain TextGrid label, allowing users to define the analysis window around the midpoint, how to resample, and how to define mid-frequency regions.
+
+```{r}
+getSpecPeak <- function(filename, tierName, tgMatch, resamp = 24000,
+                        analysisWindow = 0.01, midFreqRegion = c(3000, 7000)) {
+  
+  # Read in TextGrid with flexible filename
+  tg <- tg.read(paste0(filename, '.TextGrid'), encoding = 'auto')
+  # Find matches in TextGrid
+  match_int <- which(tg[[tierName]]$label == tgMatch)
+  # How many matches in TextGrid?
+  n_match <- length(match_int)
+  # Create empty data frame
+  spec_peak <- data.frame(id = rep(NA, n_match),
+                          t1 = rep(NA, n_match),
+                          t2 = rep(NA, n_match),
+                          following = rep(NA, n_match),
+                          peak = rep(NA, n_match))
+  # Loop through TextGrid matches
+  for (i in 1:n_match) {
+    # Keep identifier
+    int <- match_int[i]
+    # Keep start and end times
+    t1 <- tg[[tierName]]$t1[int]
+    t2 <- tg[[tierName]]$t2[int]
+    # Get the following TextGrid label (probably of interest)
+    following <- tg[[tierName]]$label[int + 1]
+    # Get midpoint timestamp
+    midpoint <- t1 + (t2-t1) / 2
+    
+    # Read in sound analysis window of sound file
+    tmp <- snd.read(paste0(filename, '.wav'), 
+                    from=midpoint-(analysisWindow/2), 
+                    to=midpoint+(analysisWindow/2), 
+                    units='seconds')
+    # Resample using user input
+    sr <- tmp$fs
+    tmp <- as.vector(resamp(tmp$sig, f=tmp$fs, g=resamp))
+    
+    # Generate multitaper spectrum and convert to data frame
+    tmp_mts <- spec.mtm(tmp, nw=4, k=8, deltat=1/resamp, plot=FALSE)
+    tmp_mts <- data.frame(hz = tmp_mts$freq,
+                          energy = log(tmp_mts$spec))
+    # Filter spectrum to mid frequency region
+    tmp_mts <- tmp_mts[which(tmp_mts$hz > midFreqRegion[1] &
+                               tmp_mts$hz < midFreqRegion[2]),]
+    # Find peak
+    tmp_peak <- tmp_mts[which.max(tmp_mts$energy),'hz']
+    # Populate dummy data frame
+    spec_peak$id[i] <- i
+    spec_peak$t1[i] <- t1
+    spec_peak$t2[i] <- t2
+    spec_peak$following[i] <- following
+    spec_peak$peak[i] <- tmp_peak
+  }
+  return(spec_peak)
+}
+```
+
+This function can now be used on a single file:
+
+```{r}
+getSpecPeak(filename = 'snd/1', tierName = 'sib', tgMatch = 's')
+```
+
+Very simple output as there's only one /s/ in this sound file! But having a function also makes it easier to batch process multiple sound files. We just need a list of files that we want to process, and then we can loop over them, like so:
+
+```{r}
+# list all files with .wav extension in the snd folder
+wavFiles <- list.files(path = 'snd', pattern = '.wav', full.names = TRUE)
+
+# loop over them
+for (i in 1:length(wavFiles)) {
+  # get versions of file names without .wav extension
+  bare_filename <- gsub('.wav', '', wavFiles[i])
+  
+  # if this is the first run through the loop, initiate data frame
+  if (i == 1) {
+    specPeakBulk <- getSpecPeak(bare_filename, tierName = 'sib', tgMatch = 's')
+    specPeakBulk$file <- bare_filename
+  # if this is not the first run through the loop, create new temporary 
+  # data frame and combine at the end
+  } else {
+    tmp <- getSpecPeak(bare_filename, tierName = 'sib', tgMatch = 's')
+    tmp$file <- bare_filename
+    specPeakBulk <- rbind(specPeakBulk, tmp)
+  }
+}
+```
+
+These are the results:
+
+```{r}
+specPeakBulk
+```
+
+## More complex methods and workflows
+
+When we generate spectra in R and store them in R objects, it means we also have access to all the complex statistical methods that are available in R. In addition to parameterizing the spectra with one or a few numbers as we've done here, we can use them as inputs or dependent variables in advanced statistical methods. I'll briefly mention a few here, but won't demonstrate the methods here. One such approach is functional principal component analysis (FPCA), a dimensionality reduction method that takes as input a potentially large number of *functions* or curves, and can be used to summarize their principal modes of variation. The output would then be 1) the average spectrum, 2) a small number of shapes (*principal components*) that summarize ways in which the input spectra differ from the average, and 3) for each input spectrum, *scores* indicating how much it matches each of the principal components. @puggaardrode2023 uses this approach to analyze regional variation in /t/ midpoint spectra in Danish (the code is laid out [here](https://rpuggaardrode.github.io/icphs2023)).
+
+An approach for integrating both the frequency and time domains using function-on-scalar regression is demonstrated by @puggaardrode2022. This involves smoothing over both the time and frequency domain to estimate differences in time-varying spectral shape in different conditions.
